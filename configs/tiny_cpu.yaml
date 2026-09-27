@@ -1,0 +1,31 @@
+# ~2M-parameter model for fast debugging on a laptop CPU.
+data:
+  name: tinystories
+  source_type: hf_dataset
+  source: roneneldan/TinyStories
+
+tokenizer:
+  backend: scratch_bpe
+  vocab_size: 8192
+
+model:
+  n_layer: 4
+  n_head: 4
+  d_model: 128
+  block_size: 256
+  vocab_size: 8192
+
+train:
+  max_steps: 200
+  micro_batch_size: 8
+  lr: 1.0e-3
+  warmup_steps: 20
+  eval_interval: 50
+  eval_steps: 10
+  ckpt_interval: 100
+  device: cpu
+  dtype: float32
+
+paths:
+  data_dir: data
+  ckpt_dir: checkpoints/tiny_cpu

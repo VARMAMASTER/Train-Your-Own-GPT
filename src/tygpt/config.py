@@ -1,10 +1,14 @@
 """Typed run configuration: one dataclass per section, loaded from plain dicts."""
 
+import copy
 import dataclasses
 import types
 import typing
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from pathlib import Path
+from typing import Any, Iterable, Optional, Union
+
+import yaml
 
 SOURCE_TYPES = ("text_dir", "jsonl", "hf_dataset")
 TOKENIZER_BACKENDS = ("scratch_bpe", "tiktoken_gpt2")
@@ -229,3 +233,44 @@ def validate(cfg: Config) -> None:
 
     if errors:
         raise ConfigError("invalid config:\n  - " + "\n  - ".join(errors))
+
+
+def apply_overrides(raw: Optional[dict], overrides: Iterable[str]) -> dict:
+    """Return a copy of raw with each 'section.key=value' override applied.
+
+    Values are parsed as YAML, so 'true', '12', '3.0e-4' and 'null' get their natural types.
+    """
+    result = copy.deepcopy(raw) if raw else {}
+    for item in overrides:
+        if "=" not in item:
+            raise ConfigError(f"override '{item}' must look like section.key=value")
+        dotted, value_text = item.split("=", 1)
+        parts = dotted.strip().split(".")
+        if len(parts) != 2 or not all(parts):
+            raise ConfigError(
+                f"override '{item}': key must be section.key, for example train.lr=3e-4"
+            )
+        section_name, key = parts
+        section = result.get(section_name)
+        if section is None:
+            section = result[section_name] = {}
+        if not isinstance(section, dict):
+            raise ConfigError(f"override '{item}': section '{section_name}' is not a mapping")
+        section[key] = yaml.safe_load(value_text)
+    return result
+
+
+def load_config(path: Union[str, Path], overrides: Iterable[str] = ()) -> Config:
+    """Read a YAML config file, apply CLI overrides, and return a validated Config."""
+    path = Path(path)
+    if not path.is_file():
+        raise ConfigError(f"config file not found: {path}")
+    try:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        raise ConfigError(f"{path}: invalid YAML: {exc}") from exc
+    if raw is None:
+        raw = {}
+    if not isinstance(raw, dict):
+        raise ConfigError(f"{path}: top level must be a mapping of sections")
+    return config_from_dict(apply_overrides(raw, overrides))
