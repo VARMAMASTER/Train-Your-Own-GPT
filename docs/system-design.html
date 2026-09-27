@@ -235,7 +235,7 @@ td.num{font-variant-numeric:tabular-nums;font-family:var(--mono);font-size:.84re
     <table>
       <thead><tr><th>Phase</th><th>Where</th><th>What</th><th>Done when</th></tr></thead>
       <tbody>
-        <tr><td><span class="pill c-colab">Phase 1</span></td><td><b>Colab Pro only</b></td><td>Build everything from scratch · pretrain the <b>14M</b> model on TinyStories · fine-tune it on <b>one chapter of the Bhagavad Gita</b></td><td>Before/after fine-tuning results, demo runs in Colab</td></tr>
+        <tr><td><span class="pill c-colab">Phase 1</span></td><td><b>Colab Pro only</b></td><td>Build everything from scratch · pretrain the <b>15M</b> model on TinyStories · fine-tune it on <b>one chapter of the Bhagavad Gita</b></td><td>Before/after fine-tuning results, demo runs in Colab</td></tr>
         <tr><td><span class="pill c-vultr">Phase 2</span></td><td>Vultr (+ Colab Pro)</td><td>Pretrain the <b>124M</b> model on FineWeb-Edu · fine-tune on the Gita · Track B · public demo</td><td>All five success criteria met</td></tr>
       </tbody>
     </table>
@@ -378,7 +378,7 @@ td.num{font-variant-numeric:tabular-nums;font-family:var(--mono);font-size:.84re
         <text x="505" y="35" class="s-small">BPE tokenizer</text>
         <line x1="340" y1="50" x2="340" y2="72" class="s-arrow" marker-end="url(#ah)"/>
         <rect x="190" y="76" width="300" height="40" rx="6" class="s-box"/>
-        <text x="340" y="101" text-anchor="middle" class="s-text">Token + position embedding</text>
+        <text x="340" y="101" text-anchor="middle" class="s-text">Token embedding (RoPE in attention)</text>
         <text x="505" y="101" class="s-small">d_model = 768</text>
         <line x1="340" y1="116" x2="340" y2="140" class="s-arrow" marker-end="url(#ah)"/>
         <rect x="130" y="144" width="420" height="190" rx="10" class="s-block"/>
@@ -407,7 +407,7 @@ td.num{font-variant-numeric:tabular-nums;font-family:var(--mono);font-size:.84re
           <thead><tr><th>Preset</th><th>Layers</th><th>d_model</th><th>Context</th><th>Params</th><th>Runs on</th></tr></thead>
           <tbody>
             <tr><td><code>tiny</code></td><td class="num">4</td><td class="num">128</td><td class="num">256</td><td class="num">~2M</td><td><span class="pill c-laptop">Tests</span></td></tr>
-            <tr><td><code>small</code></td><td class="num">6</td><td class="num">384</td><td class="num">512</td><td class="num">~14M</td><td><span class="pill c-colab">Colab · phase 1</span></td></tr>
+            <tr><td><code>small</code></td><td class="num">7</td><td class="num">384</td><td class="num">512</td><td class="num">~15M</td><td><span class="pill c-colab">Colab · phase 1</span></td></tr>
             <tr><td><code>base124m</code></td><td class="num">12</td><td class="num">768</td><td class="num">1,024</td><td class="num">124M</td><td><span class="pill c-vultr">Vultr · phase 2</span></td></tr>
           </tbody>
         </table>
@@ -514,8 +514,8 @@ td.num{font-variant-numeric:tabular-nums;font-family:var(--mono);font-size:.84re
       <thead><tr><th>Run</th><th>Params</th><th>Tokens</th><th>FLOPs</th><th>Hardware</th><th>Est. time</th><th>Est. cost</th></tr></thead>
       <tbody>
         <tr><td><code>tiny</code> smoke test</td><td class="num">2M</td><td class="num">5M</td><td class="num">6e13</td><td><span class="pill c-colab">Colab</span></td><td class="num">minutes</td><td class="num">Pro plan</td></tr>
-        <tr><td><code>small</code> TinyStories</td><td class="num">14M</td><td class="num">~470M</td><td class="num">4e16</td><td><span class="pill c-colab">Colab Pro T4 / L4</span></td><td class="num">~1–1.5 h</td><td class="num">Pro plan</td></tr>
-        <tr><td><code>small</code> Gita fine-tune</td><td class="num">14M</td><td class="num">~15k × epochs</td><td class="num">tiny</td><td><span class="pill c-colab">Colab Pro</span></td><td class="num">minutes</td><td class="num">Pro plan</td></tr>
+        <tr><td><code>small</code> TinyStories</td><td class="num">15M</td><td class="num">~470M</td><td class="num">4e16</td><td><span class="pill c-colab">Colab Pro T4 / L4</span></td><td class="num">~1–1.5 h</td><td class="num">Pro plan</td></tr>
+        <tr><td><code>small</code> Gita fine-tune</td><td class="num">15M</td><td class="num">~15k × epochs</td><td class="num">tiny</td><td><span class="pill c-colab">Colab Pro</span></td><td class="num">minutes</td><td class="num">Pro plan</td></tr>
         <tr><td><code>base124m</code> FineWeb-Edu</td><td class="num">124M</td><td class="num">2.5B</td><td class="num">1.9e18</td><td><span class="pill c-vultr">1× A100</span></td><td class="num">~4–6 h</td><td class="num">~$10–25</td></tr>
         <tr><td><code>base124m</code> extended</td><td class="num">124M</td><td class="num">10B</td><td class="num">7.4e18</td><td><span class="pill c-vultr">A100 / H100</span></td><td class="num">~12–20 h</td><td class="num">~$30–60</td></tr>
       </tbody>
@@ -553,15 +553,15 @@ td.num{font-variant-numeric:tabular-nums;font-family:var(--mono);font-size:.84re
     <li class="step c-colab"><div class="rail"><span class="sn">3</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Tokenizer</h3><span class="pill">Colab</span></div><p>ScratchBPE matches tiktoken; vocab trained on TinyStories + the Gita; shards for both.</p></div></li>
     <li class="step c-colab"><div class="rail"><span class="sn">4</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Model + generation</h3><span class="pill">Colab</span></div><p>All model tests pass; <code>tiny</code> overfits one batch.</p></div></li>
     <li class="step c-colab"><div class="rail"><span class="sn">5</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Trainer + checkpointing</h3><span class="pill">Colab</span></div><p><code>tiny</code> trains on the GPU; the resume test passes.</p></div></li>
-    <li class="step c-colab"><div class="rail"><span class="sn">6</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Pretrain 14M</h3><span class="pill">Colab</span></div><p><code>small</code> trained on TinyStories (~1–1.5 h on a T4); survives a forced disconnect.</p></div></li>
+    <li class="step c-colab"><div class="rail"><span class="sn">6</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Pretrain 15M</h3><span class="pill">Colab</span></div><p><code>small</code> trained on TinyStories (~1–1.5 h on a T4); survives a forced disconnect.</p></div></li>
     <li class="step c-colab"><div class="rail"><span class="sn">7</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Evaluation</h3><span class="pill">Colab</span></div><p>Perplexity, bits per byte, fixed-prompt samples, loss plots.</p></div></li>
-    <li class="step c-colab"><div class="rail"><span class="sn">8</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Fine-tune on a Gita chapter</h3><span class="pill">Colab</span></div><p>Early stopping on held-out verses; before/after table and samples.</p></div></li>
+    <li class="step c-colab"><div class="rail"><span class="sn">8</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Fine-tune on a Gita chapter to answer questions</h3><span class="pill">Colab</span></div><p>8a read the chapter → 8b Q&amp;A fine-tuning; three-way comparison on held-out questions.</p></div></li>
     <li class="step c-colab"><div class="rail"><span class="sn">9</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Phase 1 wrap-up</h3><span class="pill">Colab</span></div><p>Results, Colab demo, README, tag <code>v1.0</code>.</p></div></li>
   </ol>
   <h3>Phase 2 · Vultr</h3>
   <ol class="steps">
     <li class="step c-vultr"><div class="rail"><span class="sn">10</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Big run</h3><span class="pill">Vultr</span></div><p><code>base124m</code> on FineWeb-Edu within budget; HellaSwag; cost report.</p></div></li>
-    <li class="step c-colab"><div class="rail"><span class="sn">11</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Fine-tune 124M on the Gita</h3><span class="pill">Colab Pro</span></div><p>14M vs 124M comparison, using bits per byte.</p></div></li>
+    <li class="step c-colab"><div class="rail"><span class="sn">11</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Fine-tune 124M on the Gita</h3><span class="pill">Colab Pro</span></div><p>15M vs 124M comparison, using bits per byte.</p></div></li>
     <li class="step c-colab"><div class="rail"><span class="sn">12</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Track B + comparison</h3><span class="pill">Colab Pro</span></div><p>LoRA on an open model with the same data split; head-to-head table.</p></div></li>
     <li class="step c-ship"><div class="rail"><span class="sn">13</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Ship</h3><span class="pill">HF</span></div><p>Weights on HF Hub, Gradio Space live, README with results.</p></div></li>
   </ol>
@@ -600,7 +600,7 @@ td.num{font-variant-numeric:tabular-nums;font-family:var(--mono);font-size:.84re
       <ol class="nb-cells">
         <li><b>D1 Smoke test</b><span>tiny model, 300 steps on GPU</span></li>
         <li><b>D2 Benchmark</b><span>tokens/sec, memory, batch size</span></li>
-        <li><b>D3 Launch</b><span>14M run in background, --resume</span></li>
+        <li><b>D3 Launch</b><span>15M run in background, --resume</span></li>
         <li><b>D4 Monitor</b><span>log tail + loss curve + ETA</span></li>
         <li><b>D5 Sample</b><span>"Once upon a time…"</span></li>
       </ol></div>
@@ -611,10 +611,11 @@ td.num{font-variant-numeric:tabular-nums;font-family:var(--mono);font-size:.84re
       </ol></div>
     <div class="nb-part c-accent"><div class="nb-head"><span class="nb-tag">F</span><h3>Gita fine-tune</h3><span class="nb-when">step 8</span></div>
       <ol class="nb-cells">
-        <li><b>F1 Launch</b><span>init from 14M best.pt</span></li>
+        <li><b>F1 Read the chapter</b><span>8a: continued pretraining from 15M best.pt</span></li>
         <li><b>F2 Monitor</b><span>train vs val, best step</span></li>
-        <li><b>F3 Eval</b><span>before / after table</span></li>
-        <li><b>F4 Side by side</b><span>"Arjuna said:" from both models</span></li>
+        <li><b>F3 Learn to answer</b><span>8b: Q&amp;A fine-tuning</span></li>
+        <li><b>F4 Three-way eval</b><span>pretrained · +chapter · +Q&amp;A</span></li>
+        <li><b>F5 Ask</b><span>"Where is the battle fought?"</span></li>
       </ol></div>
     <div class="nb-part c-ship"><div class="nb-head"><span class="nb-tag">G</span><h3>Demo &amp; results</h3><span class="nb-when">step 9</span></div>
       <ol class="nb-cells">
@@ -645,7 +646,7 @@ td.num{font-variant-numeric:tabular-nums;font-family:var(--mono);font-size:.84re
       <thead><tr><th>Decided</th><th>Choice</th></tr></thead>
       <tbody>
         <tr><td>Custom data</td><td>One chapter of the Bhagavad Gita, fine-tuned by continued pretraining</td></tr>
-        <tr><td>First model</td><td>14M <code>small</code> on Colab Pro; 124M moves to phase 2</td></tr>
+        <tr><td>First model</td><td>15M <code>small</code> on Colab Pro; 124M moves to phase 2</td></tr>
         <tr><td>Where to run</td><td>Colab Pro only in phase 1; Vultr in phase 2</td></tr>
       </tbody>
     </table>

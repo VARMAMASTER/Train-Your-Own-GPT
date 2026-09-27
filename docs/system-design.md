@@ -20,7 +20,7 @@ Build a GPT-style language model from scratch in PyTorch, train it, fine-tune it
 
 | Phase | Where | What | Done when |
 |---|---|---|---|
-| **1 · Prove the pipeline** | **Colab Pro only** | Build everything from scratch; pretrain the **14M** model on TinyStories; fine-tune it on **one chapter of the Bhagavad Gita** | Before/after fine-tuning results in `docs/results.md`, demo runs in Colab |
+| **1 · Prove the pipeline** | **Colab Pro only** | Build everything from scratch; pretrain the **15M** model on TinyStories; fine-tune it on **one chapter of the Bhagavad Gita** | Before/after fine-tuning results in `docs/results.md`, demo runs in Colab |
 | **2 · Scale up** | Vultr (+ Colab Pro for light jobs) | Pretrain the **124M** model on FineWeb-Edu; fine-tune on the Gita; Track B comparison; public demo | Success criteria 1–5 above are met |
 
 Phase 2 starts only after phase 1 works end to end. The same code and configs run in both phases.
@@ -77,7 +77,7 @@ Train-Your-Own-GPT/
 ├── configs/                  # YAML configs, one per experiment
 │   ├── tiny_cpu.yaml         # ~2M params, tests and smoke runs
 │   ├── colab.yaml            # Drive paths for Colab runs
-│   ├── small_tinystories.yaml# ~14M params, phase 1 pretraining
+│   ├── small_tinystories.yaml# ~15M params, phase 1 pretraining
 │   ├── gita_chapter.yaml     # phase 1 fine-tuning on a Gita chapter
 │   └── base124m_fineweb.yaml # 124M params, phase 2 on Vultr
 ├── datasets/gita/            # chapter text + SOURCE.md (translation, licence)
@@ -153,18 +153,45 @@ Each component lists its job, its inputs and outputs, and the decisions that sha
 - **Proof that the scratch version is correct:** load GPT-2's published merges into `ScratchBPE` and check that its output matches `tiktoken` exactly on a test corpus. This test also shows interviewers that the scratch implementation is right, not just written.
 - **Encoded format:** flat `uint16` NumPy arrays (`train.bin`, `val.bin`), with documents separated by `<|endoftext|>`. A sidecar `meta.json` records the tokenizer name, vocab size and token count. `uint16` works because both vocabularies are under 65,536.
 
+**How the vocabulary is built (ScratchBPE, 8,192 tokens)**
+
+1. Pre-split text with the GPT-2 regex into word-like chunks (`" Arjuna"`, `" said"`, `","`), so merges never cross word boundaries.
+2. Convert each chunk to UTF-8 bytes: IDs 0–255. Any character in any script is representable, so there is no "unknown" token.
+3. Repeatedly merge the most frequent adjacent pair into a new ID until the vocabulary is full.
+
+| IDs | Contents |
+|---|---|
+| 0–255 | Raw bytes |
+| 256–8,187 | Learned merges (7,932 of them) |
+| 8,188 | `<\|endoftext\|>`: document boundary in pretraining; padding filler in SFT batches |
+| 8,189 | `<\|user\|>`: start of a question |
+| 8,190 | `<\|assistant\|>`: start of an answer |
+| 8,191 | `<\|end\|>`: end of a turn; generation stops here |
+
+**Special-token rules**
+
+- Special tokens are added as whole tokens after training; they are never produced by merges.
+- `encode(text)` treats the literal string `<|user|>` inside user text as **plain characters**. Only `encode(text, allowed_special=...)`, used by our own chat template, emits real special-token IDs. This stops a prompt from faking the chat format.
+- **Chat template** (Q&A fine-tuning and inference): `<|user|>{question}<|end|><|assistant|>{answer}<|end|>`.
+- No separate padding token: SFT batches are padded with `<|endoftext|>` and those positions are excluded from the loss (target `-100`).
+
 ### 5.4 Model
 
 - **Job:** a decoder-only transformer, GPT-2 architecture.
-- **Structure:** token embedding + learned position embedding → N × Block (pre-LayerNorm → causal multi-head self-attention → residual → pre-LayerNorm → MLP 4× with GELU → residual) → final LayerNorm → LM head with weights tied to the token embedding.
-- **Attention:** uses `torch.nn.functional.scaled_dot_product_attention(is_causal=True)`, which picks flash attention on supported GPUs. A manual implementation is kept too, and a test checks that both give the same output.
+- **Structure:** token embedding → N × Block (pre-LayerNorm → causal multi-head self-attention → residual → pre-LayerNorm → MLP 4× with GELU → residual) → final LayerNorm → LM head with weights tied to the token embedding. Written in plain PyTorch (`torch.nn`).
+- **Multi-head attention:** `d_model` is split across `n_head` heads (head size = d_model / n_head = 64 for the presets). Each head computes its own attention pattern, so different heads can track different relationships (who is speaking, what a pronoun refers to, which words a question is about). Heads are concatenated and projected back to `d_model`.
+- **Attention kernel:** `torch.nn.functional.scaled_dot_product_attention(is_causal=True)`, which picks flash attention on supported GPUs. A manual implementation (explicit causal mask, softmax(QKᵀ/√d)·V) is kept too, and a test checks that both give the same output.
+- **Positions** (`model.pos_encoding`):
+  - `rope` (**default**): rotary position embedding, as in Llama, Qwen and Mistral. Queries and keys are rotated by a position-dependent angle before attention, so attention scores depend on the **relative distance** between tokens. No parameters; handles slightly longer inputs than trained on.
+  - `learned`: a learned absolute position vector per position, added to the token embedding, as in GPT-2. Kept for the GPT-2 weight-equivalence test and as an ablation baseline.
+  - Phase 1 includes an **ablation**: the same 15M model trained with each, compared on val loss.
 - **Initialisation:** normal(0, 0.02), with residual projections scaled by 1/√(2·n_layer) as in GPT-2.
 - **Presets:**
 
 | Preset | Layers | Heads | d_model | Context | Vocab | ~Params | Runs on |
 |---|---|---|---|---|---|---|---|
 | `tiny` | 4 | 4 | 128 | 256 | 8,192 | 2M | Tests, quick smoke runs |
-| `small` | 6 | 6 | 384 | 512 | 8,192 | 14M | Colab Pro (phase 1) |
+| `small` | 7 | 6 | 384 | 512 | 8,192 | 15.5M | Colab Pro (phase 1) |
 | `base124m` | 12 | 12 | 768 | 1,024 | 50,304* | 124M | Vultr A100/H100 |
 
 \*50,257 padded to a multiple of 64 for GPU efficiency.
@@ -200,9 +227,13 @@ The fine-tuning mode depends on your data type:
 
 In both modes, training starts from the pretrained checkpoint, uses a learning rate about 10× lower, and runs a few epochs with early stopping on custom-data val loss, so the model doesn't just memorise the data.
 
+**Phase 1 uses both modes, in order** (step 8): first continued pretraining on the Gita chapter text (the model learns the names, events and vocabulary), then supervised fine-tuning on question–answer pairs about the chapter (the model learns to answer). A model that has only read the chapter would continue a question with more text instead of answering it.
+
 ### 5.8 Generation
 
 - `generate(model, prompt_ids, max_new_tokens, temperature, top_k, top_p)`, stopping at `<|end|>` or `<|endoftext|>`.
+- Each step: run the model on the context (cropped to `block_size`) → take the logits at the last position → divide by temperature → keep the top-k / top-p tokens → sample one → append → repeat.
+- `answer(model, tokenizer, question)` wraps a question in the chat template (`<|user|>…<|end|><|assistant|>`) and returns the generated answer text.
 - v1 recomputes the full context at every step. A KV cache is a later optimisation, and a test will check it gives the same output as the no-cache version.
 
 ### 5.9 Evaluation
@@ -246,7 +277,7 @@ flowchart LR
 | Environment | Phase | How code arrives | Data & checkpoint location | Used for |
 |---|---|---|---|---|
 | Laptop | 1, 2 | Local working copy | none | Writing code, git, CPU tests |
-| **Colab Pro** | **1**, 2 | `notebooks/colab_runner.ipynb`: `git clone`/`pull` + `pip install -e .` | Drive `MyDrive/mini-gpt/`; shards copied to local `/content` for speed | Tests, data prep, tokenizer, 14M pretraining, fine-tuning, eval, demo |
+| **Colab Pro** | **1**, 2 | `notebooks/colab_runner.ipynb`: `git clone`/`pull` + `pip install -e .` | Drive `MyDrive/mini-gpt/`; shards copied to local `/content` for speed | Tests, data prep, tokenizer, 15M pretraining, fine-tuning, eval, demo |
 | Vultr | 2 | `git clone` + setup script | Local NVMe, synced to object storage every checkpoint | 124M pretraining |
 
 **Important:** Colab cannot see files on your laptop. Code gets there through GitHub, and data gets there through Drive or a download. The Colab notebook is only a runner: it can be rebuilt at any time, because everything that matters is in GitHub (code) or Drive (data and checkpoints).
@@ -282,8 +313,8 @@ Training compute is estimated as FLOPs ≈ 6 × parameters × tokens.
 | Run | Params | Tokens | FLOPs | Hardware | Est. time | Est. cost |
 |---|---|---|---|---|---|---|
 | `tiny` smoke test | 2M | 5M | 6e13 | Colab (any GPU) | minutes | Pro plan |
-| `small` TinyStories | 14M | ~470M | 4e16 | Colab Pro T4 / L4 | ~1–1.5 h (T4) | Pro plan |
-| `small` Gita fine-tune | 14M | ~15k × a few epochs | tiny | Colab Pro | minutes | Pro plan |
+| `small` TinyStories | 15M | ~470M | 4e16 | Colab Pro T4 / L4 | ~1–1.5 h (T4) | Pro plan |
+| `small` Gita fine-tune | 15M | ~15k × a few epochs | tiny | Colab Pro | minutes | Pro plan |
 | `base124m` FineWeb-Edu | 124M | 2.5B | 1.9e18 | 1× A100 80GB | ~4–6 h | ~$10–25 |
 | `base124m` extended | 124M | 10B | 7.4e18 | 1× A100/H100 | ~12–20 h | ~$30–60 |
 
@@ -304,13 +335,13 @@ Each step is its own small project with its own plan, tests and PR. Each produce
 | 3 | Tokenizer | ScratchBPE matches tiktoken; shards for both datasets | Colab |
 | 4 | Model + generation | All model tests pass; `tiny` overfits a batch | Colab |
 | 5 | Trainer + checkpointing | `tiny` trains on GPU; resume test passes | Colab |
-| 6 | Pretrain 14M | `small` trained on TinyStories; survives a forced disconnect | Colab |
+| 6 | Pretrain 15M | `small` trained on TinyStories; survives a forced disconnect | Colab |
 | 7 | Evaluation | Perplexity, bits per byte, samples, plots | Colab |
 | 8 | Fine-tune on a Gita chapter | Gita val loss beats base; before/after table | Colab |
 | 9 | Phase 1 wrap-up | Results, Colab demo, README, tag `v1.0` | Colab + GitHub |
 | | **Phase 2: Vultr** | | |
 | 10 | Big run | `base124m` trained within budget; HellaSwag; cost report | Vultr |
-| 11 | Fine-tune 124M on the Gita | 14M vs 124M comparison | Colab Pro |
+| 11 | Fine-tune 124M on the Gita | 15M vs 124M comparison | Colab Pro |
 | 12 | Track B + comparison | `results.md` with head-to-head table | Colab Pro |
 | 13 | Ship | HF Hub weights, Gradio Space live, README with results | HF |
 
@@ -336,9 +367,11 @@ Each step is its own small project with its own plan, tests and PR. Each produce
 
 | Decision | Choice | Consequence |
 |---|---|---|
-| Custom data | **One chapter of the Bhagavad Gita** (documents) | Fine-tuning mode is continued pretraining; data is split by paragraph/verse (step 2) |
-| Data size | ~10–20k tokens | Early stopping is essential; tokenizer is trained on TinyStories + the Gita text |
-| First model | **14M `small`** on Colab Pro | 124M moves to phase 2 on Vultr |
+| Custom data | **One chapter of the Bhagavad Gita** + **question–answer pairs** about it; topic: Kurukshetra | Step 8 = 8a continued pretraining on the chapter, then 8b Q&A fine-tuning (section 5.7) |
+| Data size | Chapter ~10–20k tokens; 300–500 Q&A pairs | Early stopping is essential; tokenizer is trained on TinyStories + the Gita text |
+| First model | **~15M `small`** (7 layers × 6 heads × 384) on Colab Pro | 124M moves to phase 2 on Vultr |
+| Framework | **PyTorch** (plain `torch.nn`, no Hugging Face model code) | Section 5.4 |
+| Positions | **RoPE** (relative) by default, learned absolute as an option | Ablation in phase 1 |
 | Where to run | **Colab Pro only in phase 1** | Colab runner notebook becomes step 1 |
 
 **Still open**
@@ -346,7 +379,8 @@ Each step is its own small project with its own plan, tests and PR. Each produce
 | Decision | Options | Blocks |
 |---|---|---|
 | **Gita translation** | Public domain: Edwin Arnold, *The Song Celestial* (1885, verse) · K. T. Telang (1882, prose) · another translation (check copyright before publishing) | Step 2 |
-| **Which chapter** | Chapter 2 *Sankhya Yoga* (72 verses, recommended) · another chapter | Step 2 |
+| **Which chapter** | Chapter 1 *Arjuna Vishada Yoga* (47 verses, set on the Kurukshetra battlefield; recommended for this topic) · Chapter 2 *Sankhya Yoga* (72 verses, Krishna's teachings) | Step 2 |
+| **Q&A source** | Claude drafts pairs from the public-domain text and the user checks them · user writes them · mix | Step 8b |
 | Experiment tracking | W&B (free tier) · CSV + matplotlib only | Step 5 logging |
 
 ## 13. Step-by-step build procedure
@@ -373,7 +407,7 @@ Nothing moves to the next step until the current step's **Done when** line is tr
 
 ## Phase 1: everything on Colab Pro
 
-Goal of phase 1: a complete, working pipeline. A 14M model built from scratch, pretrained on TinyStories, and fine-tuned on a chapter of the Bhagavad Gita.
+Goal of phase 1: a complete, working pipeline. A 15M model built from scratch, pretrained on TinyStories, and fine-tuned on a chapter of the Bhagavad Gita.
 
 ### Step 0: Scaffold ✅ done
 
@@ -468,7 +502,7 @@ Goal of phase 1: a complete, working pipeline. A 14M model built from scratch, p
   4. Add the fast path `F.scaled_dot_product_attention(is_causal=True)`, and keep the manual version for testing.
   5. `model/generate.py`: temperature, top-k and top-p sampling, stopping at an end token.
   6. Optional but valuable: a loader that copies Hugging Face's pretrained GPT-2 weights into our module. If our model then produces the same logits as Hugging Face's, the architecture is proven correct.
-- **Verify (Colab cell):** `!pytest tests/model -v`, then run one forward and backward pass of the `small` model on the GPU and print its parameter count (~14M) and memory use.
+- **Verify (Colab cell):** `!pytest tests/model -v`, then run one forward and backward pass of the `small` model on the GPU and print its parameter count (~15M) and memory use.
 - **Tests:** output shapes; parameter counts per preset; **causality** (changing a future token never changes earlier logits); SDPA and manual attention agree; the `tiny` model overfits a single batch to near-zero loss; generation is reproducible with a fixed seed.
 - **Done when:** all model tests pass and a single batch overfits.
 - **You'll learn:** self-attention, causal masking, residual streams, why scale by √d<sub>k</sub>, weight tying.
@@ -503,13 +537,13 @@ Goal of phase 1: a complete, working pipeline. A 14M model built from scratch, p
 
 ---
 
-### Step 6: Pretrain the 14M model
+### Step 6: Pretrain the 15M model
 
-- **Goal:** the first real model: `small` (~14M parameters) pretrained on TinyStories.
+- **Goal:** the first real model: `small` (~15M parameters) pretrained on TinyStories.
 - **Runs on:** Colab Pro T4 (fp16) or L4 (bf16).
 - **Needs from earlier:** steps 1–5.
 - **Build, in order:**
-  1. `configs/small_tinystories.yaml`: `small` preset (6 layers, 6 heads, d_model 384, context 512, vocab 8,192), checkpoints to Drive, `max_hours` set.
+  1. `configs/small_tinystories.yaml`: `small` preset (7 layers, 6 heads, d_model 384, context 512, vocab 8,192, RoPE), checkpoints to Drive, `max_hours` set.
   2. **Benchmark:** 5-minute run → measured tokens/sec → find the largest `micro_batch_size` that fits → set `max_steps` for one pass over TinyStories (~470M tokens).
   3. Full run with `--resume`, checkpoints every few minutes.
   4. **Disconnect drill:** restart the runtime mid-training, re-run the notebook, and confirm it continues from the last checkpoint.
@@ -529,25 +563,37 @@ Goal of phase 1: a complete, working pipeline. A 14M model built from scratch, p
   2. Fixed-prompt samples saved at every eval, including Gita-style prompts (`Arjuna said:`, `Krishna said:`) so the before/after fine-tuning comparison is ready.
   3. `eval/plots.py` + `tygpt plot <run>`: `metrics.csv` → loss-curve PNGs.
   4. `tygpt eval <checkpoint> --data <config>` writes results to `docs/results.md`.
-- **Done when:** perplexity, bits per byte, samples and plots work on the 14M model, on both the TinyStories and Gita val sets.
+- **Done when:** perplexity, bits per byte, samples and plots work on the 15M model, on both the TinyStories and Gita val sets.
 - **You'll learn:** what perplexity means, and why comparisons across tokenizers need normalising.
 
-(HellaSwag moves to phase 2: at 14M parameters, trained only on children's stories, it would score close to random guessing.)
+(HellaSwag moves to phase 2: at 15M parameters, trained only on children's stories, it would score close to random guessing.)
 
 ---
 
-### Step 8: Fine-tune on a Gita chapter
+### Step 8: Fine-tune on a Gita chapter to answer questions
 
-- **Goal:** adapt the 14M model to one chapter of the Bhagavad Gita and measure what changed.
+- **Goal:** turn the pretrained ~15M model into one that answers questions about a Gita chapter (topic: Kurukshetra), and measure each stage.
 - **Runs on:** Colab.
-- **Needs from earlier:** 14M checkpoint (step 6), Gita shards (step 3), evaluation (step 7).
-- **Build, in order:**
+- **Needs from earlier:** pretrained checkpoint (step 6), Gita shards (step 3), evaluation (step 7).
+
+**8a · Read the chapter (continued pretraining)**
   1. Config field `train.init_from`: start from a checkpoint instead of random weights.
-  2. `configs/gita_chapter.yaml`: continued pretraining (the data is documents, section 5.7), learning rate ~10× lower than pretraining, several epochs, eval every few steps.
-  3. **Early stopping** on Gita val loss. With only ~10–20k tokens, the model starts memorising verses after a few passes; keep the checkpoint with the best val loss.
-  4. Compare base vs fine-tuned: Gita val loss and bits per byte, TinyStories val loss (to see how much general ability was lost), and side-by-side samples from the same prompts.
-- **Done when:** Gita val loss is clearly lower than the base model's, samples show the Gita's style and vocabulary, and `docs/results.md` has the before/after table.
-- **You'll learn:** transfer learning, overfitting on tiny datasets, early stopping, catastrophic forgetting.
+  2. `configs/gita_chapter.yaml`: continued pretraining on the chapter text, learning rate ~10× lower than pretraining, several epochs, eval every few steps.
+  3. **Early stopping** on held-out verses; keep the best checkpoint.
+
+**8b · Learn to answer (supervised fine-tuning)**
+  1. `datasets/gita/qa.jsonl`: 300–500 question–answer pairs about the chapter, as `{"messages": [{"role": "user", ...}, {"role": "assistant", ...}]}`. Split ~85/15 into train and **held-out questions**.
+  2. `train/sft_loader.py`: renders each pair with the chat template, pads batches with `<|endoftext|>`, and sets targets to `-100` everywhere except the answer and its `<|end|>`.
+  3. `configs/gita_qa.yaml`: `train.init_from` = best 8a checkpoint, low learning rate, early stopping on held-out question loss.
+  4. `tygpt ask <checkpoint> "Where is the battle fought?"` uses `answer()` from section 5.8.
+
+**Evaluation (both stages)**
+  - Compare three models on the held-out questions: pretrained only · + 8a · + 8a + 8b. Report answer loss, and a simple keyword-match score (does the answer contain the expected names or facts).
+  - TinyStories val loss for each, to measure how much general ability was lost.
+  - Side-by-side answers to the same questions.
+- **Done when:** the 8a + 8b model answers held-out questions clearly better than the other two, and `docs/results.md` has the three-way table and example answers.
+- **Honest expectation:** at ~15M parameters the model answers trained questions (and rephrasings) well; answers to genuinely new questions are sometimes right and often invented.
+- **You'll learn:** transfer learning, instruction tuning, loss masking, overfitting on tiny datasets, early stopping, catastrophic forgetting.
 
 ---
 
@@ -590,8 +636,8 @@ Starts only after phase 1 is done. The same code and configs run unchanged; only
 
 - **Goal:** repeat step 8 at 124M parameters, ideally on the whole Gita (18 chapters, ~700 verses).
 - **Runs on:** Colab Pro (fine-tuning is light).
-- **Done when:** `docs/results.md` compares 14M vs 124M, before vs after fine-tuning.
-- **Note:** the 124M model uses the GPT-2 tokenizer, so comparisons with the 14M model use **bits per byte**, not raw loss.
+- **Done when:** `docs/results.md` compares 15M vs 124M, before vs after fine-tuning.
+- **Note:** the 124M model uses the GPT-2 tokenizer, so comparisons with the 15M model use **bits per byte**, not raw loss.
 
 ---
 
@@ -667,7 +713,7 @@ Starts only after phase 1 is done. The same code and configs run unchanged; only
 | Cell | Purpose | What it runs | Check it prints |
 |---|---|---|---|
 | D1 Smoke test | Prove the whole loop works on the GPU in ~1 min | `tygpt train configs/tiny_cpu.yaml train.device=cuda train.max_steps=300` | loss falling, checkpoint written |
-| D2 Benchmark | Measure real speed for the 14M model | `tygpt train configs/small_tinystories.yaml train.max_steps=200` | tokens/sec, GPU memory, suggested `micro_batch_size` and `max_steps` |
+| D2 Benchmark | Measure real speed for the 15M model | `tygpt train configs/small_tinystories.yaml train.max_steps=200` | tokens/sec, GPU memory, suggested `micro_batch_size` and `max_steps` |
 | D3 Launch | Start (or resume) the real run in the background | `nohup tygpt train configs/small_tinystories.yaml --resume > logs/pretrain.log 2>&1 &` | process ID |
 | D4 Monitor | Watch progress; re-run any time | tail of the log + loss-curve plot from `metrics.csv` | step, loss, val loss, tokens/sec, ETA |
 | D5 Sample | Read what the model writes | `tygpt sample checkpoints/small/best.pt --prompt "Once upon a time"` | generated stories |
@@ -683,10 +729,11 @@ Starts only after phase 1 is done. The same code and configs run unchanged; only
 
 | Cell | Purpose | What it runs | Check it prints |
 |---|---|---|---|
-| F1 Launch | Fine-tune from the 14M checkpoint | `tygpt train configs/gita_chapter.yaml train.init_from=checkpoints/small/best.pt` (background) | process ID |
+| F1 Read the chapter | 8a: continued pretraining from the 15M checkpoint | `tygpt train configs/gita_chapter.yaml train.init_from=checkpoints/small/best.pt` (background) | process ID |
 | F2 Monitor | Watch train vs val loss; spot memorising | log tail + plot of both curves | best step (early stopping) |
-| F3 Eval | Compare base vs fine-tuned | `tygpt eval` on Gita val and TinyStories val for both checkpoints | before/after table |
-| F4 Side by side | Same prompts, both models | `tygpt sample` with `Arjuna said:`, `Krishna said:` | two columns of text |
+| F3 Learn to answer | 8b: Q&A fine-tuning from the best 8a checkpoint | `tygpt train configs/gita_qa.yaml` (background) | process ID, then best step |
+| F4 Three-way eval | Pretrained vs +chapter vs +chapter+Q&A on held-out questions | `tygpt eval` for the three checkpoints | answer loss, keyword score, TinyStories loss |
+| F5 Ask | Try questions on all three models | `tygpt ask <ckpt> "Where is the battle fought?"` | three answers side by side |
 
 **Part G · Demo and results** (step 9)
 
