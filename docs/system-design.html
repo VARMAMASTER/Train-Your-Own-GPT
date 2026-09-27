@@ -1,0 +1,559 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Train Your Own GPT · System Design</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#F3F5F8; --surface:#FFFFFF; --ink:#141B2B; --muted:#56607A; --line:#D5DAE4; --sunk:#EDF0F5;
+  --accent:#C2560C; --accent-soft:#FBE9DC;
+  --laptop:#4B5B7A; --laptop-soft:#E6EAF2;
+  --colab:#B7791F; --colab-soft:#FBF1DC;
+  --vultr:#2F6FDB; --vultr-soft:#E1EBFC;
+  --ship:#2E8B57; --ship-soft:#DFF2E7;
+  --warn:#B42318; --warn-soft:#FDE7E5;
+  --display:"Bricolage Grotesque","Segoe UI",system-ui,sans-serif;
+  --body:"IBM Plex Sans","Segoe UI",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    color-scheme:dark;
+    --bg:#10141D; --surface:#171D29; --ink:#E7EBF3; --muted:#9AA4BA; --line:#2A3345; --sunk:#131925;
+    --accent:#F08A45; --accent-soft:#3A2415;
+    --laptop:#A9B6D1; --laptop-soft:#222B3C;
+    --colab:#E9B454; --colab-soft:#342A15;
+    --vultr:#7FA8F5; --vultr-soft:#172A4A;
+    --ship:#6BCB95; --ship-soft:#163323;
+    --warn:#F59C92; --warn-soft:#3B1A18;
+  }
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.6;padding-inline:20px}
+.wrap{max-width:1120px;margin:0 auto;padding-block:40px 80px;display:grid;gap:72px}
+h1,h2,h3{font-family:var(--display);text-wrap:balance;margin:0;line-height:1.15}
+h1{font-size:clamp(2.2rem,5vw,3.6rem);font-weight:800;letter-spacing:-.02em}
+h2{font-size:clamp(1.45rem,3vw,2rem);font-weight:800;letter-spacing:-.01em}
+h3{font-size:1.05rem;font-weight:600}
+p{margin:0;max-width:68ch}
+code{font-family:var(--mono);font-size:.84em;background:var(--sunk);border:1px solid var(--line);padding:0 5px;border-radius:4px}
+.eyebrow{font-family:var(--mono);font-size:.74rem;letter-spacing:.12em;text-transform:uppercase;color:var(--accent)}
+.muted{color:var(--muted)}
+.note{font-size:.88rem;color:var(--muted)}
+section{display:grid;gap:24px;scroll-margin-top:70px}
+.sec-head{display:grid;gap:8px}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* nav */
+nav{position:sticky;top:0;z-index:10;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line);margin-inline:-20px;padding:10px 20px}
+nav ul{list-style:none;margin:0 auto;padding:0;max-width:1120px;display:flex;gap:4px 18px;overflow-x:auto;white-space:nowrap}
+nav a{font-family:var(--mono);font-size:.76rem;color:var(--muted);text-decoration:none;letter-spacing:.04em}
+nav a:hover{color:var(--accent)}
+
+/* header */
+header{display:grid;gap:18px}
+.lede{font-size:1.12rem;color:var(--muted)}
+.meta{display:flex;flex-wrap:wrap;gap:8px}
+.chip{display:inline-flex;align-items:center;gap:8px;font-family:var(--mono);font-size:.75rem;padding:4px 10px;border-radius:999px;border:1px solid var(--line);background:var(--surface)}
+.dot{width:9px;height:9px;border-radius:50%;flex:none}
+.c-laptop{--c:var(--laptop);--cs:var(--laptop-soft)} .c-colab{--c:var(--colab);--cs:var(--colab-soft)}
+.c-vultr{--c:var(--vultr);--cs:var(--vultr-soft)} .c-ship{--c:var(--ship);--cs:var(--ship-soft)}
+.c-accent{--c:var(--accent);--cs:var(--accent-soft)}
+.dot{background:var(--c,var(--muted))}
+
+/* success criteria */
+.criteria{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;counter-reset:c}
+.crit{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px;display:grid;gap:6px;align-content:start}
+.crit b{font-family:var(--display);font-size:1.5rem;color:var(--accent);line-height:1}
+.crit span{font-size:.88rem}
+
+/* pipeline */
+.pipe-scroll{overflow-x:auto;padding-bottom:6px}
+.pipe{display:grid;grid-template-columns:repeat(6,minmax(150px,1fr));gap:0;min-width:980px;position:relative}
+.pstage{display:grid;grid-template-rows:auto 1fr;gap:0;position:relative}
+.pbox{margin-right:26px;background:var(--surface);border:1.5px solid var(--c);border-radius:10px;padding:14px;display:grid;gap:6px;position:relative;height:100%}
+.pbox .n{font-family:var(--mono);font-size:.72rem;color:var(--c);letter-spacing:.08em;text-transform:uppercase}
+.pbox h3{font-size:1rem}
+.pbox ul{margin:0;padding-left:1em;font-size:.82rem;color:var(--muted);display:grid;gap:2px}
+.pstage:not(:last-child) .pbox::after{content:"";position:absolute;right:-27px;top:50%;width:26px;height:2px;background:var(--muted)}
+.pstage:not(:last-child) .pbox::before{content:"";position:absolute;right:-28px;top:calc(50% - 5px);border:6px solid transparent;border-left:8px solid var(--muted);border-right:0}
+.art{margin:10px 26px 0 0;font-family:var(--mono);font-size:.72rem;background:var(--sunk);border:1px dashed var(--line);border-radius:6px;padding:6px 8px;color:var(--muted)}
+.art b{color:var(--ink);font-weight:500}
+.trackb{margin-top:18px;display:grid;grid-template-columns:repeat(6,minmax(150px,1fr));min-width:980px}
+.trackb .tb{grid-column:3 / span 3;margin-right:26px;border:1.5px dashed var(--accent);border-radius:10px;padding:10px 14px;display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;justify-content:space-between;background:var(--accent-soft)}
+.trackb .tb span{font-size:.86rem}
+.trackb .tb .arrow{font-family:var(--mono);color:var(--accent);font-size:.8rem}
+
+/* component cards */
+.comp-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+.comp{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:18px;display:grid;gap:10px;align-content:start}
+.comp-top{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+.comp .path{font-family:var(--mono);font-size:.72rem;color:var(--muted)}
+.io{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;font-size:.84rem}
+.io dt{font-family:var(--mono);font-size:.7rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding-top:2px}
+.io dd{margin:0}
+.comp .dec{font-size:.84rem;border-top:1px solid var(--line);padding-top:10px;color:var(--muted)}
+.comp .dec b{color:var(--ink);font-weight:600}
+
+/* tokenizer split */
+.tok{display:grid;grid-template-columns:1fr auto 1fr;gap:16px;align-items:stretch}
+.tokbox{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:18px;display:grid;gap:8px;align-content:start}
+.tokbox .big{font-family:var(--display);font-size:1.8rem;font-weight:800}
+.tokmid{display:grid;place-items:center;text-align:center;font-family:var(--mono);font-size:.76rem;color:var(--accent);max-width:170px}
+.tokmid .eq{font-size:1.8rem;font-family:var(--display);line-height:1}
+
+/* model */
+.model-row{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:20px;align-items:start}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:20px;display:grid;gap:12px}
+.svgwrap{overflow-x:auto}
+svg{display:block;width:100%;height:auto}
+.s-box{fill:var(--sunk);stroke:var(--line);stroke-width:1.5}
+.s-block{fill:var(--accent-soft);stroke:var(--accent);stroke-width:1.5}
+.s-inner{fill:var(--surface);stroke:var(--accent);stroke-width:1}
+.s-text{fill:var(--ink);font-family:var(--body);font-size:14px}
+.s-small{fill:var(--muted);font-family:var(--mono);font-size:11.5px}
+.s-strong{fill:var(--accent);font-family:var(--mono);font-size:13px;font-weight:500}
+.s-arrow{stroke:var(--muted);stroke-width:1.5;fill:none}
+.s-head{fill:var(--muted)}
+
+/* tables */
+.tbl-wrap{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;font-size:.88rem}
+th,td{text-align:left;padding:10px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-family:var(--mono);font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:500;background:var(--sunk)}
+tr:last-child td{border-bottom:0}
+td.num{font-variant-numeric:tabular-nums;font-family:var(--mono);font-size:.84rem;white-space:nowrap}
+.pill{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:.7rem;letter-spacing:.05em;text-transform:uppercase;padding:2px 8px;border-radius:4px;background:var(--cs);color:var(--c);white-space:nowrap}
+
+/* env diagram */
+.env-svg{min-width:760px}
+.e-node{fill:var(--surface);stroke-width:1.8}
+.e-laptop{stroke:var(--laptop)} .e-colab{stroke:var(--colab)} .e-vultr{stroke:var(--vultr)} .e-ship{stroke:var(--ship)} .e-git{stroke:var(--ink)}
+.e-store{fill:var(--sunk);stroke:var(--line);stroke-width:1.5}
+.e-title{fill:var(--ink);font-family:var(--display);font-size:15px;font-weight:600}
+.e-sub{fill:var(--muted);font-family:var(--mono);font-size:11px}
+.e-edge{stroke:var(--muted);stroke-width:1.5;fill:none}
+.e-lbl{fill:var(--accent);font-family:var(--mono);font-size:11px}
+.callout{border-left:3px solid var(--accent);background:var(--accent-soft);padding:12px 16px;border-radius:0 8px 8px 0;font-size:.92rem}
+
+/* failures */
+.fail-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px}
+.fail{background:var(--surface);border:1px solid var(--line);border-top:3px solid var(--warn);border-radius:8px;padding:14px 16px;display:grid;gap:6px;align-content:start}
+.fail h3{font-size:.98rem}
+.fail .det{font-family:var(--mono);font-size:.74rem;color:var(--warn)}
+.fail p{font-size:.86rem;color:var(--muted)}
+
+/* budget */
+.budget{display:grid;gap:14px}
+.bar{display:flex;height:44px;border-radius:8px;overflow:hidden;border:1px solid var(--line)}
+.seg{display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:.74rem;color:#fff;white-space:nowrap;overflow:hidden;min-width:0}
+.seg.s1{background:var(--laptop)} .seg.s2{background:var(--vultr)} .seg.s3{background:var(--colab)} .seg.s4{background:var(--ship)}
+.bar-legend{display:flex;flex-wrap:wrap;gap:8px 20px;font-size:.85rem}
+.bar-legend span{display:inline-flex;gap:8px;align-items:center}
+.sw{width:12px;height:12px;border-radius:3px}
+.scale{display:flex;justify-content:space-between;font-family:var(--mono);font-size:.72rem;color:var(--muted);font-variant-numeric:tabular-nums}
+
+/* build order */
+.steps{display:grid;gap:0;list-style:none;margin:0;padding:0}
+.step{display:grid;grid-template-columns:48px 1fr;gap:16px}
+.rail{display:flex;flex-direction:column;align-items:center}
+.sn{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;font-family:var(--mono);font-size:.85rem;border:2px solid var(--c);color:var(--c);background:var(--surface);flex:none}
+.stem{flex:1;width:2px;background:var(--line);min-height:12px}
+.step:last-child .stem{display:none}
+.sbody{padding-bottom:18px;display:grid;gap:4px}
+.sbody-top{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:baseline}
+.sbody p{font-size:.88rem;color:var(--muted)}
+
+/* open decisions */
+.open-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.open{background:var(--surface);border:1.5px dashed var(--accent);border-radius:10px;padding:16px;display:grid;gap:8px;align-content:start}
+.opts{display:flex;flex-wrap:wrap;gap:6px}
+.opts span{font-size:.8rem;padding:2px 8px;border:1px solid var(--line);border-radius:5px;background:var(--sunk)}
+footer{font-size:.84rem;color:var(--muted);border-top:1px solid var(--line);padding-top:20px}
+
+@media (max-width:900px){
+  .criteria{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .comp-grid,.open-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .model-row{grid-template-columns:1fr}
+  .tok{grid-template-columns:1fr}
+  .tokmid{max-width:none;padding:4px}
+}
+@media (max-width:560px){
+  .criteria,.comp-grid,.open-grid{grid-template-columns:1fr}
+  .step{grid-template-columns:38px 1fr;gap:10px}
+}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+</style>
+</head>
+<body>
+
+<nav aria-label="Sections">
+  <ul>
+    <li><a href="#goal">Goal</a></li>
+    <li><a href="#arch">Architecture</a></li>
+    <li><a href="#components">Components</a></li>
+    <li><a href="#tokenizer">Tokenizer</a></li>
+    <li><a href="#model">Model</a></li>
+    <li><a href="#env">Environments</a></li>
+    <li><a href="#failures">Failures</a></li>
+    <li><a href="#tests">Tests</a></li>
+    <li><a href="#budget">Budget</a></li>
+    <li><a href="#build">Build order</a></li>
+    <li><a href="#open">Open decisions</a></li>
+  </ul>
+</nav>
+
+<div class="wrap">
+
+<header id="goal">
+  <span class="eyebrow">System design · draft v1 · 2026-09-27</span>
+  <h1>Train Your Own GPT</h1>
+  <p class="lede">A GPT-style language model built from scratch in PyTorch: our own tokenizer, transformer, training loop and fine-tuning, trained across a laptop, Google Colab and a Vultr GPU, then shipped as a public demo.</p>
+  <div class="meta">
+    <span class="chip c-laptop"><span class="dot"></span>Laptop · CPU · free</span>
+    <span class="chip c-colab"><span class="dot"></span>Colab · T4 16 GB · free</span>
+    <span class="chip c-vultr"><span class="dot"></span>Vultr · A100 / H100 · $250</span>
+    <span class="chip c-ship"><span class="dot"></span>Ship · GitHub + Hugging Face</span>
+  </div>
+  <div class="criteria" aria-label="Success criteria">
+    <div class="crit"><b>124M</b><span>parameter model pretrained on ≥ 2.5B tokens with coherent output</span></div>
+    <div class="crit"><b>SFT</b><span>fine-tuned on custom data, beating the base model's val loss</span></div>
+    <div class="crit"><b>A vs B</b><span>measured comparison against a LoRA-tuned open model</span></div>
+    <div class="crit"><b>Live</b><span>public repo, tests, HF model card and Gradio demo</span></div>
+    <div class="crit"><b>≤ $250</b><span>total cloud spend within the Vultr credit</span></div>
+  </div>
+  <p class="note">Out of scope for v1: RLHF / DPO, multi-node training, mixture-of-experts, quantization, serving at scale.</p>
+</header>
+
+<section id="arch">
+  <div class="sec-head">
+    <span class="eyebrow">Architecture</span>
+    <h2>Six stages that only communicate through files</h2>
+    <p class="muted">Each stage reads the files the previous stage wrote. No stage calls another's code, so each can be tested alone and run on a different machine.</p>
+  </div>
+  <div class="pipe-scroll">
+    <div class="pipe">
+      <div class="pstage c-laptop">
+        <div class="pbox"><span class="n">Stage 1</span><h3>Data</h3><ul><li>Load sources</li><li>Clean &amp; dedupe</li><li>Train / val split</li></ul></div>
+        <div class="art">→ <b>train.txt, val.txt</b><br>data_card.json</div>
+      </div>
+      <div class="pstage c-laptop">
+        <div class="pbox"><span class="n">Stage 2</span><h3>Tokenizer</h3><ul><li>Train BPE or load GPT-2</li><li>Encode corpus</li></ul></div>
+        <div class="art">→ <b>train.bin, val.bin</b><br>meta.json</div>
+      </div>
+      <div class="pstage c-laptop">
+        <div class="pbox"><span class="n">Stage 3</span><h3>Model</h3><ul><li>GPT module</li><li>Presets: tiny / small / base</li></ul></div>
+        <div class="art">→ <b>tygpt.model</b><br>(Python module)</div>
+      </div>
+      <div class="pstage c-vultr">
+        <div class="pbox"><span class="n">Stage 4</span><h3>Training</h3><ul><li>Pretrain</li><li>Fine-tune on my data</li><li>Checkpoint &amp; resume</li></ul></div>
+        <div class="art">→ <b>last.pt, best.pt</b><br>metrics.csv</div>
+      </div>
+      <div class="pstage c-colab">
+        <div class="pbox"><span class="n">Stage 5</span><h3>Evaluation</h3><ul><li>Val loss, perplexity</li><li>HellaSwag</li><li>Fixed-prompt samples</li></ul></div>
+        <div class="art">→ <b>results.md</b><br>loss-curve PNGs</div>
+      </div>
+      <div class="pstage c-ship">
+        <div class="pbox"><span class="n">Stage 6</span><h3>Ship</h3><ul><li>HF Hub weights</li><li>Gradio demo</li><li>Model card</li></ul></div>
+        <div class="art">→ <b>public demo URL</b></div>
+      </div>
+    </div>
+    <div class="trackb">
+      <div class="tb"><span><b>Track B</b> · LoRA fine-tune of an open model (Qwen / Llama / Gemma) on the same data split</span><span class="arrow">→ joins stage 5</span></div>
+    </div>
+  </div>
+</section>
+
+<section id="components">
+  <div class="sec-head">
+    <span class="eyebrow">Components</span>
+    <h2>What each part does</h2>
+    <p class="muted">Every part has one job, clear inputs and outputs, and lives in its own folder under <code>src/tygpt/</code>.</p>
+  </div>
+  <div class="comp-grid">
+    <div class="comp">
+      <div class="comp-top"><h3>Config</h3><span class="path">config.py</span></div>
+      <dl class="io"><dt>In</dt><dd>YAML file + CLI overrides</dd><dt>Out</dt><dd>Typed dataclasses</dd></dl>
+      <p class="dec"><b>Decision:</b> the config is saved inside every checkpoint, so every result can be reproduced exactly.</p>
+    </div>
+    <div class="comp">
+      <div class="comp-top"><h3>Data pipeline</h3><span class="path">data/</span></div>
+      <dl class="io"><dt>In</dt><dd>Text dir · JSONL · HF dataset</dd><dt>Out</dt><dd>Split text + data card</dd></dl>
+      <p class="dec"><b>Decision:</b> exact SHA-256 dedupe; split by document with a fixed seed; FineWeb is streamed, never fully loaded into memory.</p>
+    </div>
+    <div class="comp">
+      <div class="comp-top"><h3>Tokenizer</h3><span class="path">tokenizer/</span></div>
+      <dl class="io"><dt>In</dt><dd>Split text</dd><dt>Out</dt><dd>uint16 token shards</dd></dl>
+      <p class="dec"><b>Decision:</b> two backends behind one interface. Our own BPE for small runs, GPT-2 via tiktoken for the 124M run.</p>
+    </div>
+    <div class="comp">
+      <div class="comp-top"><h3>Model</h3><span class="path">model/gpt.py</span></div>
+      <dl class="io"><dt>In</dt><dd>Token IDs (B, T)</dd><dt>Out</dt><dd>Logits (B, T, vocab)</dd></dl>
+      <p class="dec"><b>Decision:</b> GPT-2 architecture, pre-LayerNorm, tied embeddings; flash attention via SDPA, checked against a manual version.</p>
+    </div>
+    <div class="comp">
+      <div class="comp-top"><h3>Trainer</h3><span class="path">train/trainer.py</span></div>
+      <dl class="io"><dt>In</dt><dd>Config + shards</dd><dt>Out</dt><dd>Checkpoints + metrics</dd></dl>
+      <p class="dec"><b>Decision:</b> AdamW, warmup + cosine, grad clipping and accumulation, bf16/fp16 picked per GPU, <code>torch.compile</code>.</p>
+    </div>
+    <div class="comp">
+      <div class="comp-top"><h3>Checkpointing</h3><span class="path">train/checkpoint.py</span></div>
+      <dl class="io"><dt>In</dt><dd>Full training state</dd><dt>Out</dt><dd>last.pt, best.pt</dd></dl>
+      <p class="dec"><b>Decision:</b> atomic writes (temp file + rename); saves RNG and data position so a resumed run matches an uninterrupted one exactly.</p>
+    </div>
+    <div class="comp">
+      <div class="comp-top"><h3>Fine-tuning</h3><span class="path">train/ (SFT mode)</span></div>
+      <dl class="io"><dt>In</dt><dd>Base checkpoint + my data</dd><dt>Out</dt><dd>Domain model</dd></dl>
+      <p class="dec"><b>Decision:</b> documents → continued pretraining; conversations → SFT with loss only on assistant tokens. ~10× lower learning rate.</p>
+    </div>
+    <div class="comp">
+      <div class="comp-top"><h3>Generation</h3><span class="path">model/generate.py</span></div>
+      <dl class="io"><dt>In</dt><dd>Prompt IDs</dd><dt>Out</dt><dd>New tokens</dd></dl>
+      <p class="dec"><b>Decision:</b> temperature, top-k, top-p; stops at end token. KV cache comes later, tested against the no-cache output.</p>
+    </div>
+    <div class="comp">
+      <div class="comp-top"><h3>Evaluation</h3><span class="path">eval/</span></div>
+      <dl class="io"><dt>In</dt><dd>Checkpoints</dd><dt>Out</dt><dd>results.md + charts</dd></dl>
+      <p class="dec"><b>Decision:</b> perplexity everywhere; HellaSwag for 124M (GPT-2 reference ≈ 29.5%); head-to-head vs Track B.</p>
+    </div>
+  </div>
+</section>
+
+<section id="tokenizer">
+  <div class="sec-head">
+    <span class="eyebrow">Tokenizer strategy</span>
+    <h2>Written from scratch, proven correct against GPT-2</h2>
+  </div>
+  <div class="tok">
+    <div class="tokbox">
+      <span class="pill c-laptop">ScratchBPE · ours</span>
+      <span class="big">8,192 vocab</span>
+      <p class="note">Byte-level BPE with GPT-2 regex pre-splitting, trained on up to ~100 MB. Used for TinyStories and custom-data experiments.</p>
+    </div>
+    <div class="tokmid"><div><div class="eq">≡</div>Load GPT-2 merges into ScratchBPE → output must match tiktoken token for token</div></div>
+    <div class="tokbox">
+      <span class="pill c-vultr">TiktokenGPT2 · reference</span>
+      <span class="big">50,257 vocab</span>
+      <p class="note">Used for the 124M FineWeb run, because a pure-Python encoder is too slow for billions of tokens.</p>
+    </div>
+  </div>
+</section>
+
+<section id="model">
+  <div class="sec-head">
+    <span class="eyebrow">Model</span>
+    <h2>Decoder-only transformer, three sizes</h2>
+  </div>
+  <div class="model-row">
+    <div class="panel svgwrap">
+      <svg viewBox="0 0 720 470" role="img" aria-label="GPT architecture: tokens, embeddings, 12 transformer blocks, final layer norm, LM head, next-token probabilities">
+        <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="s-head"/></marker></defs>
+        <rect x="190" y="10" width="300" height="40" rx="6" class="s-box"/>
+        <text x="340" y="35" text-anchor="middle" class="s-text">Input text → token IDs</text>
+        <text x="505" y="35" class="s-small">BPE tokenizer</text>
+        <line x1="340" y1="50" x2="340" y2="72" class="s-arrow" marker-end="url(#ah)"/>
+        <rect x="190" y="76" width="300" height="40" rx="6" class="s-box"/>
+        <text x="340" y="101" text-anchor="middle" class="s-text">Token + position embedding</text>
+        <text x="505" y="101" class="s-small">d_model = 768</text>
+        <line x1="340" y1="116" x2="340" y2="140" class="s-arrow" marker-end="url(#ah)"/>
+        <rect x="130" y="144" width="420" height="190" rx="10" class="s-block"/>
+        <text x="150" y="168" class="s-strong">Transformer block × 12</text>
+        <rect x="180" y="182" width="320" height="34" rx="5" class="s-inner"/>
+        <text x="340" y="204" text-anchor="middle" class="s-text">LayerNorm → causal self-attention (12 heads)</text>
+        <text x="340" y="236" text-anchor="middle" class="s-small">+ residual connection</text>
+        <rect x="180" y="250" width="320" height="34" rx="5" class="s-inner"/>
+        <text x="340" y="272" text-anchor="middle" class="s-text">LayerNorm → MLP (768 → 3072 → 768, GELU)</text>
+        <text x="340" y="304" text-anchor="middle" class="s-small">+ residual connection</text>
+        <text x="566" y="244" class="s-small">repeat</text>
+        <text x="566" y="260" class="s-small">12 times</text>
+        <line x1="340" y1="334" x2="340" y2="356" class="s-arrow" marker-end="url(#ah)"/>
+        <rect x="190" y="360" width="300" height="40" rx="6" class="s-box"/>
+        <text x="340" y="385" text-anchor="middle" class="s-text">Final LayerNorm → LM head</text>
+        <text x="505" y="385" class="s-small">tied to embedding</text>
+        <line x1="340" y1="400" x2="340" y2="422" class="s-arrow" marker-end="url(#ah)"/>
+        <rect x="190" y="426" width="300" height="40" rx="6" class="s-box"/>
+        <text x="340" y="451" text-anchor="middle" class="s-text">Softmax → next-token probabilities</text>
+        <text x="505" y="451" class="s-small">cross-entropy loss</text>
+      </svg>
+    </div>
+    <div style="display:grid;gap:14px">
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>Preset</th><th>Layers</th><th>d_model</th><th>Context</th><th>Params</th><th>Runs on</th></tr></thead>
+          <tbody>
+            <tr><td><code>tiny</code></td><td class="num">4</td><td class="num">128</td><td class="num">256</td><td class="num">~2M</td><td><span class="pill c-laptop">Laptop</span></td></tr>
+            <tr><td><code>small</code></td><td class="num">6</td><td class="num">384</td><td class="num">512</td><td class="num">~14M</td><td><span class="pill c-colab">Colab</span></td></tr>
+            <tr><td><code>base124m</code></td><td class="num">12</td><td class="num">768</td><td class="num">1,024</td><td class="num">124M</td><td><span class="pill c-vultr">Vultr</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">Heads = layers in every preset. Vocab is 8,192 for tiny/small and 50,304 for base124m (GPT-2's 50,257 padded to a multiple of 64). Init: normal(0, 0.02), residual projections scaled by 1/√(2·n_layer).</p>
+    </div>
+  </div>
+</section>
+
+<section id="env">
+  <div class="sec-head">
+    <span class="eyebrow">Environments</span>
+    <h2>One codebase, three machines</h2>
+    <p class="muted">Code travels through GitHub. Checkpoints travel through cloud storage. Only paths and the device change between machines.</p>
+  </div>
+  <div class="panel svgwrap">
+    <svg class="env-svg" viewBox="0 0 900 300" role="img" aria-label="Laptop pushes to GitHub; Colab and Vultr clone from GitHub; Colab saves to Google Drive, Vultr to object storage; both publish to Hugging Face">
+      <defs><marker id="eh" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="s-head"/></marker></defs>
+      <rect x="10" y="115" width="160" height="70" rx="10" class="e-node e-laptop"/>
+      <text x="90" y="145" text-anchor="middle" class="e-title">Laptop · VS Code</text>
+      <text x="90" y="165" text-anchor="middle" class="e-sub">code · tests · tiny</text>
+
+      <rect x="240" y="115" width="140" height="70" rx="10" class="e-node e-git"/>
+      <text x="310" y="145" text-anchor="middle" class="e-title">GitHub repo</text>
+      <text x="310" y="165" text-anchor="middle" class="e-sub">single source</text>
+
+      <rect x="450" y="30" width="170" height="70" rx="10" class="e-node e-colab"/>
+      <text x="535" y="60" text-anchor="middle" class="e-title">Colab runtime</text>
+      <text x="535" y="80" text-anchor="middle" class="e-sub">small · SFT · Track B</text>
+
+      <rect x="450" y="200" width="170" height="70" rx="10" class="e-node e-vultr"/>
+      <text x="535" y="230" text-anchor="middle" class="e-title">Vultr GPU</text>
+      <text x="535" y="250" text-anchor="middle" class="e-sub">base124m pretrain</text>
+
+      <rect x="680" y="30" width="120" height="70" rx="10" class="e-store"/>
+      <text x="740" y="60" text-anchor="middle" class="e-title">Drive</text>
+      <text x="740" y="80" text-anchor="middle" class="e-sub">checkpoints</text>
+
+      <rect x="680" y="200" width="120" height="70" rx="10" class="e-store"/>
+      <text x="740" y="230" text-anchor="middle" class="e-title">Object store</text>
+      <text x="740" y="250" text-anchor="middle" class="e-sub">checkpoints</text>
+
+      <rect x="820" y="115" width="72" height="70" rx="10" class="e-node e-ship"/>
+      <text x="856" y="147" text-anchor="middle" class="e-title">HF</text>
+      <text x="856" y="166" text-anchor="middle" class="e-sub">Hub</text>
+
+      <line x1="170" y1="150" x2="236" y2="150" class="e-edge" marker-end="url(#eh)"/>
+      <text x="203" y="140" text-anchor="middle" class="e-lbl">push</text>
+      <path d="M380 140 C 420 120, 420 70, 446 66" class="e-edge" marker-end="url(#eh)"/>
+      <text x="400" y="92" text-anchor="middle" class="e-lbl">clone</text>
+      <path d="M380 160 C 420 180, 420 230, 446 234" class="e-edge" marker-end="url(#eh)"/>
+      <text x="400" y="218" text-anchor="middle" class="e-lbl">clone</text>
+      <line x1="620" y1="65" x2="676" y2="65" class="e-edge" marker-end="url(#eh)"/>
+      <line x1="620" y1="235" x2="676" y2="235" class="e-edge" marker-end="url(#eh)"/>
+      <path d="M800 70 C 830 80, 850 95, 853 111" class="e-edge" marker-end="url(#eh)"/>
+      <path d="M800 230 C 830 220, 850 205, 853 189" class="e-edge" marker-end="url(#eh)"/>
+    </svg>
+  </div>
+  <div class="callout"><b>Important:</b> the VS Code Colab extension runs notebook cells on Colab, but Colab can't see files on your laptop. <code>notebooks/colab_runner.ipynb</code> runs <code>git clone</code> and <code>pip install -e .</code>, then runs a config. Data arrives through Drive or a Hugging Face download.</div>
+</section>
+
+<section id="failures">
+  <div class="sec-head">
+    <span class="eyebrow">Failure handling</span>
+    <h2>What can go wrong, and what the system does about it</h2>
+  </div>
+  <div class="fail-grid">
+    <div class="fail"><h3>Colab disconnects</h3><span class="det">session ends</span><p>Resume from <code>last.pt</code> on Drive. At most one checkpoint interval is lost.</p></div>
+    <div class="fail"><h3>Loss becomes NaN</h3><span class="det">checked every step</span><p>Save a debug checkpoint, log the batch index, stop with a clear error.</p></div>
+    <div class="fail"><h3>Loss spike</h3><span class="det">&gt; 3× running average</span><p>Warn. Stop if it persists over several evals.</p></div>
+    <div class="fail"><h3>GPU out of memory</h3><span class="det">exception on first steps</span><p>Suggest halving <code>micro_batch_size</code>; accumulation keeps the effective batch the same.</p></div>
+    <div class="fail"><h3>Vultr overspend</h3><span class="det">max_hours · max_cost_usd</span><p>Trainer saves and exits cleanly when either limit is reached.</p></div>
+    <div class="fail"><h3>Instance left running</h3><span class="det">human process</span><p>Teardown checklist: sync checkpoints → verify → destroy the instance.</p></div>
+  </div>
+</section>
+
+<section id="tests">
+  <div class="sec-head">
+    <span class="eyebrow">Testing</span>
+    <h2>CPU tests on every push, under two minutes</h2>
+  </div>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>Area</th><th>What is checked</th></tr></thead>
+      <tbody>
+        <tr><td>Tokenizer</td><td>encode → decode round trip on random Unicode · ScratchBPE with GPT-2 merges matches tiktoken exactly · special tokens never split</td></tr>
+        <tr><td>Data</td><td>exact duplicates removed · no document appears in both train and val · uint16 shards round-trip</td></tr>
+        <tr><td>Model</td><td>output shapes · parameter count per preset · <b>causality</b>: changing token t+1 never changes logits at ≤ t · SDPA and manual attention agree</td></tr>
+        <tr><td>Training</td><td>overfits one batch to near-zero loss · save → resume gives the same weights as uninterrupted training · SFT mask gives zero loss from user tokens</td></tr>
+        <tr><td>Generation</td><td>deterministic with fixed seed · stops at the end token</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="budget">
+  <div class="sec-head">
+    <span class="eyebrow">Compute &amp; budget</span>
+    <h2>The $250 credit covers more than one big run</h2>
+    <p class="muted">Compute ≈ 6 × parameters × tokens. Estimates assume ~35–40% of peak GPU throughput. A 15-minute benchmark on the rented GPU sets the real token budget before the main run.</p>
+  </div>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>Run</th><th>Params</th><th>Tokens</th><th>FLOPs</th><th>Hardware</th><th>Est. time</th><th>Est. cost</th></tr></thead>
+      <tbody>
+        <tr><td><code>tiny</code> debug</td><td class="num">2M</td><td class="num">5M</td><td class="num">6e13</td><td><span class="pill c-laptop">Laptop</span></td><td class="num">minutes</td><td class="num">$0</td></tr>
+        <tr><td><code>small</code> TinyStories</td><td class="num">14M</td><td class="num">~470M</td><td class="num">4e16</td><td><span class="pill c-colab">Colab T4</span></td><td class="num">1–3 h</td><td class="num">$0</td></tr>
+        <tr><td><code>base124m</code> FineWeb-Edu</td><td class="num">124M</td><td class="num">2.5B</td><td class="num">1.9e18</td><td><span class="pill c-vultr">1× A100</span></td><td class="num">~4–6 h</td><td class="num">~$10–25</td></tr>
+        <tr><td><code>base124m</code> extended</td><td class="num">124M</td><td class="num">10B</td><td class="num">7.4e18</td><td><span class="pill c-vultr">A100 / H100</span></td><td class="num">~12–20 h</td><td class="num">~$30–60</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="panel budget">
+    <h3>How the $250 is allocated</h3>
+    <div class="bar" role="img" aria-label="Budget: setup $15, main run $25, stretch runs $100, reserve $110">
+      <div class="seg s1" style="width:6%">$15</div>
+      <div class="seg s2" style="width:10%">$25</div>
+      <div class="seg s3" style="width:40%">$100 stretch</div>
+      <div class="seg s4" style="width:44%">$110 reserve</div>
+    </div>
+    <div class="scale"><span>$0</span><span>$125</span><span>$250</span></div>
+    <div class="bar-legend">
+      <span><i class="sw" style="background:var(--laptop)"></i>Benchmark &amp; setup</span>
+      <span><i class="sw" style="background:var(--vultr)"></i>Main 124M run</span>
+      <span><i class="sw" style="background:var(--colab)"></i>Extended or 350M stretch run</span>
+      <span><i class="sw" style="background:var(--ship)"></i>Reserve for reruns</span>
+    </div>
+  </div>
+</section>
+
+<section id="build">
+  <div class="sec-head">
+    <span class="eyebrow">Build order</span>
+    <h2>Eleven steps, each ending with something that runs</h2>
+    <p class="muted">Each step is its own small project with its own plan, tests and pull request.</p>
+  </div>
+  <ol class="steps">
+    <li class="step c-laptop"><div class="rail"><span class="sn">0</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Scaffold</h3><span class="pill">Laptop</span></div><p>Package, config, CLI, CI. Done when <code>pytest</code> passes in GitHub Actions.</p></div></li>
+    <li class="step c-laptop"><div class="rail"><span class="sn">1</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Data pipeline</h3><span class="pill">Laptop</span></div><p>TinyStories + custom data → split text with a data card.</p></div></li>
+    <li class="step c-laptop"><div class="rail"><span class="sn">2</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Tokenizer</h3><span class="pill">Laptop</span></div><p>ScratchBPE matches tiktoken; token shards written.</p></div></li>
+    <li class="step c-laptop"><div class="rail"><span class="sn">3</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Model + generation</h3><span class="pill">Laptop</span></div><p>All model tests pass; <code>tiny</code> overfits one batch.</p></div></li>
+    <li class="step c-laptop"><div class="rail"><span class="sn">4</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Trainer + checkpointing</h3><span class="pill">Laptop</span></div><p><code>tiny</code> trains end to end on CPU; the resume test passes.</p></div></li>
+    <li class="step c-colab"><div class="rail"><span class="sn">5</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Colab runner</h3><span class="pill">Colab</span></div><p><code>small</code> trains on TinyStories and survives a forced disconnect.</p></div></li>
+    <li class="step c-colab"><div class="rail"><span class="sn">6</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Evaluation</h3><span class="pill">Colab</span></div><p>Perplexity, samples and HellaSwag working.</p></div></li>
+    <li class="step c-vultr"><div class="rail"><span class="sn">7</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Big run</h3><span class="pill">Vultr</span></div><p><code>base124m</code> trained within budget; results logged.</p></div></li>
+    <li class="step c-colab"><div class="rail"><span class="sn">8</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Fine-tuning</h3><span class="pill">Colab</span></div><p>Custom-data val loss improves over the base model.</p></div></li>
+    <li class="step c-colab"><div class="rail"><span class="sn">9</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Track B + comparison</h3><span class="pill">Colab</span></div><p><code>results.md</code> with the head-to-head table.</p></div></li>
+    <li class="step c-ship"><div class="rail"><span class="sn">10</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Ship</h3><span class="pill">HF</span></div><p>Weights on HF Hub, Gradio Space live, README with results.</p></div></li>
+  </ol>
+</section>
+
+<section id="open">
+  <div class="sec-head">
+    <span class="eyebrow">Open decisions</span>
+    <h2>Still to decide</h2>
+  </div>
+  <div class="open-grid">
+    <div class="open"><h3>Custom data type</h3><div class="opts"><span>Documents</span><span>Conversations / Q&amp;A</span><span>Code</span><span>Undecided</span></div><p class="note">Blocks step 1 (source adapter) and step 8 (fine-tuning mode).</p></div>
+    <div class="open"><h3>Custom data size</h3><div class="opts"><span>MB</span><span>100s of MB</span><span>GB</span></div><p class="note">Decides whether ScratchBPE is retrained on it and how many SFT epochs to run.</p></div>
+    <div class="open"><h3>Experiment tracking</h3><div class="opts"><span>W&amp;B free tier</span><span>CSV + matplotlib</span></div><p class="note">Blocks step 4 (logging).</p></div>
+  </div>
+</section>
+
+<footer>Source of truth: <code>docs/system-design.md</code>. This page is a visual companion to it · github.com/VARMAMASTER/Train-Your-Own-GPT</footer>
+
+</div>
+</body>
+</html>
