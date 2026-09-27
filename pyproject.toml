@@ -18,6 +18,9 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
 
+[project.scripts]
+tygpt = "tygpt.cli:main"
+
 [tool.setuptools.dynamic]
 version = { attr = "tygpt.__version__" }
 
