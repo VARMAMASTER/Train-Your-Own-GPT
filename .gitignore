@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Data, tokenized shards, checkpoints, logs (too big for git)
+data/raw/
+data/processed/
+*.bin
+*.pt
+*.safetensors
+checkpoints/
+wandb/
+runs/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
