@@ -117,7 +117,7 @@ Each component lists its job, its inputs and outputs, and the decisions that sha
 
 - **Job:** turn raw sources into clean, split text.
 - **Input:** a source spec in config, such as `type: text_dir`, `type: jsonl`, or `type: hf_dataset`.
-- **Output:** `data/processed/<name>/{train,val}.txt` (or JSONL for chat data) plus `data_card.json` (document counts, bytes, filters applied, source hashes).
+- **Output:** `data/processed/<name>/{train,val}.jsonl` (one document per line, so documents may contain newlines) plus `data_card.json` (document counts, bytes, filters applied, source hashes).
 - **Steps:**
   1. **Load** through a source adapter. Each adapter yields plain documents. This is where your own data plugs in.
   2. **Clean:** Unicode NFC normalisation, strip control characters, drop documents that are too short or mostly non-text.
@@ -201,7 +201,8 @@ In both modes, training starts from the pretrained checkpoint, uses a learning r
 | Val loss / perplexity | All runs | Main training signal |
 | Fixed-prompt samples | All runs | Qualitative check, saved at every eval |
 | HellaSwag accuracy | `base124m` | Standard benchmark. The GPT-2 124M reference is ~29.5% |
-| Custom-data val loss | Scratch SFT vs Track B | The head-to-head comparison |
+| Bits per byte | All runs | Loss normalised by bytes, so models with different tokenizers can be compared |
+| Custom-data bits per byte | Scratch SFT vs Track B | The head-to-head comparison |
 
 `compare.py` writes `docs/results.md` with tables and loss-curve PNGs.
 
@@ -280,7 +281,7 @@ Estimates assume about 35–40% of peak GPU throughput. **Before the real run, a
 
 ## 10. Build order
 
-Each step is its own small project with its own plan, tests and PR. Each produces something runnable.
+Each step is its own small project with its own plan, tests and PR. Each produces something runnable. The detailed procedure for every step is in section 13.
 
 | # | Sub-project | Done when | Runs on |
 |---|---|---|---|
@@ -306,6 +307,7 @@ Each step is its own small project with its own plan, tests and PR. Each produce
 | `tqdm` | Progress bars | Core |
 | `datasets` | Stream TinyStories / FineWeb-Edu | Data |
 | `tiktoken` | GPT-2 tokenizer backend + reference for tests | Tokenizer |
+| `regex` | GPT-2 Unicode-aware pre-split pattern | Tokenizer |
 | `pytest` | Tests | Dev |
 | `wandb` (optional) | Loss dashboards | Training |
 | `transformers`, `peft` / `unsloth` | Track B only | `track_b/` |
@@ -318,3 +320,234 @@ Each step is its own small project with its own plan, tests and PR. Each produce
 | **Custom data type** | Documents · conversations/Q&A · code · undecided | Step 1 source adapter, step 8 fine-tuning mode (section 5.7) |
 | Custom data size | MB · hundreds of MB · GB | Whether ScratchBPE is retrained on it, and the number of SFT epochs |
 | Experiment tracking | W&B (free tier) · CSV + matplotlib only | Step 4 logging |
+
+## 13. Step-by-step build procedure
+
+This section expands the build order in section 10 into a concrete procedure. Steps must be done in order, because each one uses the outputs of the one before it.
+
+### 13.0 How every step is built
+
+Every step follows the same loop:
+
+1. **Branch:** `git switch -c step-N-<name>` from an up-to-date `main`.
+2. **Plan:** write `docs/superpowers/plans/<date>-stepN-<name>.md` with bite-sized tasks, exact files, and test code.
+3. **Build test-first:** for each task, write the failing test → run it and watch it fail → write the code → watch it pass → commit.
+4. **Verify:** run the full test suite and the step's "Verify" commands below. Paste real output, not assumptions.
+5. **Pull request:** push the branch, open a PR, wait for CI to pass, then merge into `main`.
+6. **Record:** add any numbers the step produced (loss, tokens/sec, cost) to `docs/results.md`. Tag the release `v0.N`.
+
+Nothing moves to the next step until the current step's **Done when** line is true.
+
+---
+
+### Step 0: Scaffold
+
+- **Goal:** an installable package with configs, a CLI and CI, so every later step has a home.
+- **Runs on:** laptop.
+- **Plan:** `docs/superpowers/plans/2026-09-27-step0-scaffold.md` (already written).
+- **Build, in order:**
+  1. Create `.venv` and `pyproject.toml`; install with `pip install -e ".[dev]"`.
+  2. `src/tygpt/config.py`: dataclasses per section, type coercion, validation (section 5.1).
+  3. YAML loading and `section.key=value` overrides; add `configs/tiny_cpu.yaml`.
+  4. `src/tygpt/cli.py` with the `tygpt config` command.
+  5. `.github/workflows/ci.yml` running pytest on Python 3.10 and 3.13 with CPU-only torch.
+- **Verify:**
+  ```powershell
+  .venv\Scripts\python -m pytest
+  .venv\Scripts\tygpt config configs\tiny_cpu.yaml train.lr=5e-4
+  ```
+- **Done when:** all tests pass locally and the CI run on GitHub is green.
+- **You'll learn:** Python packaging, typed configs, test-driven development, CI.
+
+---
+
+### Step 1: Data pipeline
+
+- **Goal:** turn any raw source into clean, deduplicated, split documents.
+- **Runs on:** laptop.
+- **Needs from earlier:** `Config.data` (step 0).
+- **Build, in order:**
+  1. Add config fields `data.text_field` (default `text`), `data.min_chars` (default 200) and `data.max_docs` (optional, for quick runs).
+  2. `data/sources.py`: one adapter per source type, all exposing `iter_documents(cfg) -> Iterator[str]`:
+     - `text_dir`: every `.txt` / `.md` file under a folder is one document.
+     - `jsonl`: one JSON object per line; reads `text_field`, or `messages` for chat data.
+     - `hf_dataset`: streams a Hugging Face dataset, so it never loads everything into memory.
+  3. `data/clean.py`: `normalize(text)` (Unicode NFC, strip control characters, collapse runs of blank lines), `keep(text, min_chars)`, and exact dedupe by SHA-256.
+  4. Deterministic split: a document goes to val when `hash(seed + text)` falls under `val_fraction`. This works while streaming and never puts the same document in both splits.
+  5. `data/prepare.py` + `tygpt prepare <config>`: writes `data/processed/<name>/train.jsonl`, `val.jsonl` (one `{"text": ...}` per line, so documents can safely contain newlines) and `data_card.json` (counts, bytes, duplicates removed, filters used).
+- **Verify:**
+  ```powershell
+  .venv\Scripts\tygpt prepare configs\tiny_cpu.yaml data.max_docs=20000
+  Get-Content data\processed\tinystories\data_card.json
+  ```
+- **Tests:** normalisation cases; duplicates removed; no document in both splits; split is identical across two runs with the same seed; each adapter reads a small fixture.
+- **Done when:** TinyStories (and a sample of your own data once its type is decided) produce split JSONL with a data card.
+- **You'll learn:** why data quality matters more than model tweaks, and why splitting by document prevents train/val leakage.
+
+---
+
+### Step 2: Tokenizer
+
+- **Goal:** a byte-level BPE tokenizer written from scratch and proven correct, plus encoded token shards.
+- **Runs on:** laptop.
+- **Needs from earlier:** `train.jsonl` / `val.jsonl` (step 1).
+- **Build, in order:**
+  1. Add the `regex` package (needed for GPT-2's Unicode-aware pre-split pattern).
+  2. `tokenizer/bpe.py` training: split text with the GPT-2 regex → work in UTF-8 bytes (IDs 0–255) → repeatedly count adjacent pairs and merge the most frequent into a new ID until `vocab_size` is reached.
+  3. `encode()`: apply learned merges in order of rank. `decode()`: map IDs back to bytes, then UTF-8 with `errors="replace"`.
+  4. Special tokens (`<|endoftext|>`, `<|user|>`, `<|assistant|>`, `<|end|>`) that are never split.
+  5. `save()` / `load()` to `tokenizer.json`.
+  6. `tokenizer/backends.py`: `get_tokenizer(cfg)` returns `ScratchBPE` or `TiktokenGPT2` behind the same interface (section 5.3).
+  7. **Correctness proof:** rebuild GPT-2's merges from tiktoken's rank table, load them into `ScratchBPE`, and check that its output matches tiktoken exactly on a test corpus.
+  8. `tygpt tokenize <config>`: encodes the JSONL into `train.bin` / `val.bin` (`uint16`, documents separated by `<|endoftext|>`) plus `meta.json`, using multiple processes.
+- **Verify:**
+  ```powershell
+  .venv\Scripts\tygpt tokenize configs\tiny_cpu.yaml
+  .venv\Scripts\python -c "import numpy as np; a=np.memmap('data/processed/tinystories/train.bin',dtype=np.uint16); print(len(a), a[:20])"
+  ```
+- **Tests:** encode→decode round trip on random Unicode; GPT-2 equivalence; special tokens stay whole; shard length matches the token count in `meta.json`.
+- **Done when:** the GPT-2 equivalence test passes and token shards exist for TinyStories.
+- **You'll learn:** how BPE works, why byte-level tokenizers never hit "unknown" characters, and compression ratio (bytes per token).
+
+---
+
+### Step 3: Model and generation
+
+- **Goal:** the GPT module and text generation, verified by tests before any real training.
+- **Runs on:** laptop.
+- **Needs from earlier:** `ModelConfig` (step 0).
+- **Build, in order:**
+  1. `model/gpt.py`, bottom up: `CausalSelfAttention` (manual version with an explicit causal mask) → `MLP` → `Block` (pre-LayerNorm + residuals) → `GPT` (embeddings, blocks, final LayerNorm, tied LM head).
+  2. `GPT.forward(idx, targets=None) -> (logits, loss)`, with cross-entropy loss when targets are given.
+  3. GPT-2 weight initialisation and `num_params()`.
+  4. Add the fast path `F.scaled_dot_product_attention(is_causal=True)`, and keep the manual version for testing.
+  5. `model/generate.py`: temperature, top-k and top-p sampling, stopping at an end token.
+  6. Optional but valuable: a loader that copies Hugging Face's pretrained GPT-2 weights into our module. If our model then produces the same logits as Hugging Face's, the architecture is proven correct.
+- **Verify:**
+  ```powershell
+  .venv\Scripts\python -m pytest tests\model -v
+  ```
+- **Tests:** output shapes; parameter counts per preset (`base124m` ≈ 124M); **causality** (changing a future token never changes earlier logits); SDPA and manual attention agree; the `tiny` model overfits a single batch to near-zero loss; generation is reproducible with a fixed seed.
+- **Done when:** all model tests pass and a single batch overfits on CPU.
+- **You'll learn:** self-attention, causal masking, residual streams, why scale by √d<sub>k</sub>, weight tying.
+
+---
+
+### Step 4: Trainer and checkpointing
+
+- **Goal:** one training loop that works on CPU, Colab and Vultr, and can stop and resume exactly.
+- **Runs on:** laptop.
+- **Needs from earlier:** token shards (step 2), `GPT` (step 3).
+- **Build, in order:**
+  1. `train/loader.py`: `TokenLoader` reads random windows of `block_size + 1` tokens from the `uint16` memmap and returns `(x, y)`. Its RNG state is saveable.
+  2. Learning-rate schedule `get_lr(step)`: linear warmup, then cosine decay to `min_lr_ratio × lr`.
+  3. AdamW with two parameter groups: weight decay on 2-D weights only.
+  4. `resolve_device(cfg)`: picks `cuda` → `mps` → `cpu`, and picks precision by GPU generation: **bf16 only on compute capability ≥ 8.0 (A100/H100); fp16 with GradScaler on the T4**, even though the T4 reports emulated bf16 support.
+  5. `train/trainer.py`: gradient accumulation, clipping, autocast, optional `torch.compile`, eval every `eval_interval` steps, sample generation at each eval.
+  6. `train/logging.py`: stdout + `metrics.csv` (step, loss, val loss, lr, tokens/sec), optional W&B.
+  7. `train/checkpoint.py`: atomic save of the full state (section 5.6); `--resume` loads `last.pt`.
+  8. Guards: stop on NaN/Inf; stop cleanly at `max_hours` or `max_cost_usd`.
+  9. CLI: `tygpt train <config> [--resume]` and `tygpt sample <checkpoint> --prompt "..."`.
+- **Verify:**
+  ```powershell
+  .venv\Scripts\tygpt train configs\tiny_cpu.yaml
+  # stop it with Ctrl+C partway, then:
+  .venv\Scripts\tygpt train configs\tiny_cpu.yaml --resume
+  .venv\Scripts\tygpt sample checkpoints\tiny_cpu\best.pt --prompt "Once upon a time"
+  ```
+- **Tests:** learning-rate schedule values at key steps; weight decay groups; save→resume gives identical weights to an uninterrupted run; NaN guard triggers; cost guard stops at the limit.
+- **Done when:** `tiny` trains end to end on CPU with a falling loss, and the resume test passes.
+- **You'll learn:** AdamW, warmup and cosine schedules, mixed precision, gradient accumulation, reproducibility.
+
+---
+
+### Step 5: Colab runner
+
+- **Goal:** run real training on the free T4, safe against disconnects.
+- **Runs on:** Colab, driven from VS Code.
+- **Needs from earlier:** everything from steps 0–4, pushed to GitHub.
+- **Build, in order:**
+  1. `configs/small_tinystories.yaml`: the ~14M `small` preset, fp16, checkpoints to Drive.
+  2. `notebooks/colab_runner.ipynb`: mount Google Drive → `git clone` (or `git pull`) → `pip install -e .` → `tygpt prepare` and `tygpt tokenize` (skipped if shards already exist on Drive) → `tygpt train --resume`.
+  3. Log tokens/sec and GPU memory use to find the largest `micro_batch_size` that fits.
+  4. **Disconnect drill:** restart the runtime mid-training, re-run the notebook, and confirm it continues from the last checkpoint.
+- **Verify:** the loss curve in `metrics.csv` continues smoothly across the restart; samples read as simple, coherent stories.
+- **Done when:** `small` finishes training on TinyStories and survives a forced disconnect.
+- **You'll learn:** GPU throughput, memory limits, and working with unreliable compute.
+
+---
+
+### Step 6: Evaluation
+
+- **Goal:** measure models with numbers, not just by reading samples.
+- **Runs on:** Colab.
+- **Needs from earlier:** checkpoints (steps 4–5).
+- **Build, in order:**
+  1. `eval/perplexity.py`: val loss and perplexity over the full val shard, plus **bits per byte** (loss normalised by UTF-8 bytes). Bits per byte is what makes models with different tokenizers comparable in step 9.
+  2. Fixed-prompt samples saved at every eval.
+  3. `eval/hellaswag.py`: for each question, score all four endings by average token loss and pick the lowest. If step 3's GPT-2 loader exists, check the scorer gives ≈ 29% on pretrained GPT-2 weights.
+  4. `eval/plots.py`: `metrics.csv` → loss-curve PNGs.
+  5. `tygpt eval <checkpoint>` writes results to `docs/results.md`.
+- **Done when:** perplexity, bits per byte, samples and HellaSwag run on the `small` model.
+- **You'll learn:** what perplexity means, why benchmarks need careful scoring, why comparisons across tokenizers need normalising.
+
+---
+
+### Step 7: The big run on Vultr
+
+- **Goal:** pretrain the 124M model on FineWeb-Edu within budget.
+- **Runs on:** Vultr A100 or H100.
+- **Needs from earlier:** steps 0–6 working on Colab.
+- **Build, in order:**
+  1. `configs/base124m_fineweb.yaml`: `tiktoken_gpt2` backend, bf16, `compile: true`, `max_hours` and `max_cost_usd` set.
+  2. Extend `TokenLoader` to read multiple shards (~100M tokens each), because billions of tokens don't fit one file.
+  3. `scripts/vultr_setup.sh`: install drivers check, clone repo, create venv, install, log in to W&B, configure object-storage sync.
+  4. Tokenize FineWeb-Edu on the server using all CPU cores (the GPU sits idle here, so do this on a cheaper CPU instance if the time is long).
+  5. **Benchmark:** 15-minute run → measured tokens/sec → set `max_steps` to fit the token budget and the $ cap.
+  6. Launch inside `tmux` so the run survives SSH disconnects; sync checkpoints to object storage every checkpoint.
+  7. After the run: sync final checkpoints → verify they load → **destroy the instance** (`scripts/vultr_teardown.md`).
+- **Done when:** the model is trained, HellaSwag is measured, and `docs/results.md` has the loss curve and a cost report (GPU type, hours, $, tokens/sec).
+- **You'll learn:** scaling laws in practice, GPU efficiency (MFU), running long jobs on rented hardware.
+
+---
+
+### Step 8: Fine-tuning on your data
+
+- **Goal:** adapt the 124M model to your own data.
+- **Runs on:** Colab.
+- **Needs from earlier:** `base124m` checkpoint (step 7); your data prepared by step 1. **The custom data type must be decided before this step** (section 12).
+- **Build, in order:**
+  1. Config field `train.init_from`: start from a checkpoint instead of random weights.
+  2. Mode by data type (section 5.7):
+     - documents → continued pretraining on your tokenized data;
+     - conversations → `train/sft_loader.py`, which renders messages with special tokens and masks loss to assistant tokens only.
+  3. `configs/sft_mydata.yaml`: learning rate ~10× lower, a few epochs, early stopping on custom val loss.
+- **Done when:** val loss on your data is lower than the base model's, and samples show the model picked up your data's content or style.
+- **You'll learn:** transfer learning, loss masking, overfitting on small datasets.
+
+---
+
+### Step 9: Track B and comparison
+
+- **Goal:** compare your scratch model against the industry-standard approach.
+- **Runs on:** Colab.
+- **Needs from earlier:** the same split data (step 1), evaluation (step 6), your fine-tuned model (step 8).
+- **Build, in order:**
+  1. `track_b/finetune_lora.py` (or notebook): QLoRA fine-tune of a 1B–3B open model with Unsloth on the **same** train split.
+  2. Evaluate both models on the **same** val split, comparing **bits per byte** (not raw loss, since the tokenizers differ), plus side-by-side answers to fixed prompts.
+  3. `eval/compare.py` writes the head-to-head table into `docs/results.md`.
+- **Done when:** `docs/results.md` has the comparison table, and you can explain why the numbers came out the way they did.
+- **You'll learn:** LoRA, when to train from scratch versus fine-tune, fair evaluation.
+
+---
+
+### Step 10: Ship
+
+- **Goal:** something a recruiter can click on and try.
+- **Runs on:** Hugging Face.
+- **Build, in order:**
+  1. Export weights as `safetensors` with `config.json` and `tokenizer.json`; push to the Hugging Face Hub with a model card (architecture, data, compute, cost, results, limitations).
+  2. `demo/app.py`: Gradio UI that installs `tygpt` from GitHub and loads the weights from the Hub; deploy to a free HF Space.
+  3. README: what it is, results table, loss curves, demo link, how to reproduce.
+  4. Write-up (blog post or `docs/writeup.md`): decisions, what went wrong, what you learned.
+- **Done when:** the demo is live, the repo README shows real results, and every number on the recruiter pitch is filled in.
