@@ -175,7 +175,16 @@ td.num{font-variant-numeric:tabular-nums;font-family:var(--mono);font-size:.84re
 .open{background:var(--surface);border:1.5px dashed var(--accent);border-radius:10px;padding:16px;display:grid;gap:8px;align-content:start}
 .opts{display:flex;flex-wrap:wrap;gap:6px}
 .opts span{font-size:.8rem;padding:2px 8px;border:1px solid var(--line);border-radius:5px;background:var(--sunk)}
-footer{font-size:.84rem;color:var(--muted);border-top:1px solid var(--line);padding-top:20px}
+/* notebook cell map */
+.nb-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
+.nb-part{background:var(--surface);border:1px solid var(--line);border-top:3px solid var(--c);border-radius:10px;padding:16px;display:grid;gap:10px;align-content:start}
+.nb-head{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}
+.nb-tag{width:26px;height:26px;border-radius:6px;display:grid;place-items:center;font-family:var(--mono);font-size:.8rem;background:var(--cs);color:var(--c)}
+.nb-when{margin-left:auto;font-family:var(--mono);font-size:.7rem;color:var(--muted)}
+.nb-cells{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.nb-cells li{display:grid;gap:1px;font-size:.84rem;padding:6px 8px;background:var(--sunk);border-radius:5px}
+.nb-cells b{font-family:var(--mono);font-size:.78rem;font-weight:500}
+.nb-cells span{color:var(--muted)}footer{font-size:.84rem;color:var(--muted);border-top:1px solid var(--line);padding-top:20px}
 
 @media (max-width:900px){
   .criteria{grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -205,7 +214,8 @@ footer{font-size:.84rem;color:var(--muted);border-top:1px solid var(--line);padd
     <li><a href="#tests">Tests</a></li>
     <li><a href="#budget">Budget</a></li>
     <li><a href="#build">Build order</a></li>
-    <li><a href="#open">Open decisions</a></li>
+    <li><a href="#notebook">Notebook</a></li>
+    <li><a href="#open">Decisions</a></li>
   </ul>
 </nav>
 
@@ -555,6 +565,74 @@ footer{font-size:.84rem;color:var(--muted);border-top:1px solid var(--line);padd
     <li class="step c-colab"><div class="rail"><span class="sn">12</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Track B + comparison</h3><span class="pill">Colab Pro</span></div><p>LoRA on an open model with the same data split; head-to-head table.</p></div></li>
     <li class="step c-ship"><div class="rail"><span class="sn">13</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Ship</h3><span class="pill">HF</span></div><p>Weights on HF Hub, Gradio Space live, README with results.</p></div></li>
   </ol>
+</section>
+
+<section id="notebook">
+  <div class="sec-head">
+    <span class="eyebrow">Colab notebook</span>
+    <h2>The runner notebook, cell by cell</h2>
+    <p class="muted"><code>notebooks/colab_runner.ipynb</code> only runs things. Each cell is a few lines that call <code>tygpt</code>, is safe to re-run, and ends by printing a check. Long jobs run in the background and write their logs to Drive.</p>
+  </div>
+  <div class="nb-grid">
+    <div class="nb-part c-colab"><div class="nb-head"><span class="nb-tag">A</span><h3>Session setup</h3><span class="nb-when">every session · ~2 min</span></div>
+      <ol class="nb-cells">
+        <li><b>A1 Settings</b><span>BRANCH, RUN_NAME, Drive root</span></li>
+        <li><b>A2 GPU check</b><span>GPU, memory, fp16/bf16 speed, chosen precision</span></li>
+        <li><b>A3 Drive</b><span>mount; data, checkpoints, results, logs folders</span></li>
+        <li><b>A4 Code</b><span>git clone / pull, print commit</span></li>
+        <li><b>A5 Install</b><span>pip install -e ".[dev]"</span></li>
+        <li><b>A6 Tests</b><span>pytest, must pass before training</span></li>
+        <li><b>A7 Data cache</b><span>copy shards Drive → local disk</span></li>
+      </ol></div>
+    <div class="nb-part c-colab"><div class="nb-head"><span class="nb-tag">B</span><h3>Data</h3><span class="nb-when">step 2 · once</span></div>
+      <ol class="nb-cells">
+        <li><b>B1 TinyStories</b><span>tygpt prepare → data card</span></li>
+        <li><b>B2 Gita chapter</b><span>split into verses, then train / val</span></li>
+        <li><b>B3 Inspect</b><span>3 random samples from each split</span></li>
+      </ol></div>
+    <div class="nb-part c-colab"><div class="nb-head"><span class="nb-tag">C</span><h3>Tokenizer</h3><span class="nb-when">step 3 · once</span></div>
+      <ol class="nb-cells">
+        <li><b>C1 Train BPE</b><span>8,192 tokens from TinyStories + Gita</span></li>
+        <li><b>C2 Encode</b><span>train.bin / val.bin for both datasets</span></li>
+        <li><b>C3 Inspect</b><span>round trip; how "Arjuna" splits</span></li>
+      </ol></div>
+    <div class="nb-part c-vultr"><div class="nb-head"><span class="nb-tag">D</span><h3>Pretraining</h3><span class="nb-when">steps 5–6</span></div>
+      <ol class="nb-cells">
+        <li><b>D1 Smoke test</b><span>tiny model, 300 steps on GPU</span></li>
+        <li><b>D2 Benchmark</b><span>tokens/sec, memory, batch size</span></li>
+        <li><b>D3 Launch</b><span>14M run in background, --resume</span></li>
+        <li><b>D4 Monitor</b><span>log tail + loss curve + ETA</span></li>
+        <li><b>D5 Sample</b><span>"Once upon a time…"</span></li>
+      </ol></div>
+    <div class="nb-part c-laptop"><div class="nb-head"><span class="nb-tag">E</span><h3>Evaluation</h3><span class="nb-when">step 7</span></div>
+      <ol class="nb-cells">
+        <li><b>E1 Base eval</b><span>loss, perplexity, bits per byte</span></li>
+        <li><b>E2 Plots</b><span>loss curves → results/</span></li>
+      </ol></div>
+    <div class="nb-part c-accent"><div class="nb-head"><span class="nb-tag">F</span><h3>Gita fine-tune</h3><span class="nb-when">step 8</span></div>
+      <ol class="nb-cells">
+        <li><b>F1 Launch</b><span>init from 14M best.pt</span></li>
+        <li><b>F2 Monitor</b><span>train vs val, best step</span></li>
+        <li><b>F3 Eval</b><span>before / after table</span></li>
+        <li><b>F4 Side by side</b><span>"Arjuna said:" from both models</span></li>
+      </ol></div>
+    <div class="nb-part c-ship"><div class="nb-head"><span class="nb-tag">G</span><h3>Demo &amp; results</h3><span class="nb-when">step 9</span></div>
+      <ol class="nb-cells">
+        <li><b>G1 Demo</b><span>Gradio, base vs fine-tuned, share link</span></li>
+        <li><b>G2 Results</b><span>tables + plots → Drive</span></li>
+      </ol></div>
+  </div>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>Situation</th><th>Cells to run</th></tr></thead>
+      <tbody>
+        <tr><td>First session ever</td><td>A1–A6, then the current step's part</td></tr>
+        <tr><td>New session, work in progress</td><td>A1–A7, then continue</td></tr>
+        <tr><td>After a disconnect during training</td><td>A1–A7 → D3 (resumes from <code>last.pt</code>) → D4</td></tr>
+        <tr><td>Code changed on a branch</td><td>A4–A6, then the step's cells</td></tr>
+      </tbody>
+    </table>
+  </div>
 </section>
 
 <section id="open">

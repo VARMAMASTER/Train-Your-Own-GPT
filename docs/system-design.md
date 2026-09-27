@@ -392,13 +392,7 @@ Goal of phase 1: a complete, working pipeline. A 14M model built from scratch, p
 - **Runs on:** Colab Pro.
 - **Needs from earlier:** step 0 pushed to GitHub.
 - **Build, in order:**
-  1. `notebooks/colab_runner.ipynb` with these cells:
-     1. GPU check: GPU name, memory, compute capability, fp16/bf16 speed.
-     2. Mount Google Drive; create `/content/drive/MyDrive/mini-gpt/{data,checkpoints}`.
-     3. `git clone` the repo (or `git pull` if it exists) and check out the branch being worked on (a `BRANCH` variable at the top).
-     4. `pip install -e ".[dev]"`.
-     5. `pytest`: the same tests as CI, now on the Colab machine.
-     6. A "command" cell for the current step's verify commands.
+  1. `notebooks/colab_runner.ipynb` with the Part A session-setup cells **A1–A7** from section 14: settings, GPU check, Drive, clone/pull, install, tests, data cache.
   2. `configs/colab.yaml` overrides: `paths.data_dir` and `paths.ckpt_dir` point at the Drive folder; `train.device: auto`.
   3. Speed rule: token shards are **copied from Drive to local `/content` disk** at the start of a run, because reading training data straight from Drive is slow. Checkpoints are written to Drive, so they survive a disconnect.
 - **Verify:** "Run all" on a fresh runtime finishes with the tests passing and prints the GPU details.
@@ -448,7 +442,7 @@ Goal of phase 1: a complete, working pipeline. A 14M model built from scratch, p
   5. `save()` / `load()` to `tokenizer.json`.
   6. `tokenizer/backends.py`: `get_tokenizer(cfg)` returns `ScratchBPE` or `TiktokenGPT2` behind the same interface (section 5.3).
   7. **Correctness proof:** rebuild GPT-2's merges from tiktoken's rank table, load them into `ScratchBPE`, and check that its output matches tiktoken exactly on a test corpus.
-  8. **Train the 8,192-token vocabulary on a TinyStories sample plus the full Gita text**, so names such as *Arjuna*, *Krishna* and *Kurukshetra* get their own tokens.
+  8. `tygpt tokenizer-train <config>`: **train the 8,192-token vocabulary on a TinyStories sample plus the full Gita text**, so names such as *Arjuna*, *Krishna* and *Kurukshetra* get their own tokens. Saves `tokenizer.json` to Drive.
   9. `tygpt tokenize <config>`: encodes the JSONL into `train.bin` / `val.bin` (`uint16`, documents separated by `<|endoftext|>`) plus `meta.json`, using all CPU cores.
 - **Verify (Colab cells):**
   ```
@@ -533,7 +527,7 @@ Goal of phase 1: a complete, working pipeline. A 14M model built from scratch, p
 - **Build, in order:**
   1. `eval/perplexity.py`: val loss and perplexity over a full val shard, plus **bits per byte** (loss normalised by UTF-8 bytes), which makes models with different tokenizers comparable.
   2. Fixed-prompt samples saved at every eval, including Gita-style prompts (`Arjuna said:`, `Krishna said:`) so the before/after fine-tuning comparison is ready.
-  3. `eval/plots.py`: `metrics.csv` → loss-curve PNGs.
+  3. `eval/plots.py` + `tygpt plot <run>`: `metrics.csv` → loss-curve PNGs.
   4. `tygpt eval <checkpoint> --data <config>` writes results to `docs/results.md`.
 - **Done when:** perplexity, bits per byte, samples and plots work on the 14M model, on both the TinyStories and Gita val sets.
 - **You'll learn:** what perplexity means, and why comparisons across tokenizers need normalising.
@@ -624,3 +618,90 @@ Starts only after phase 1 is done. The same code and configs run unchanged; only
   3. README: what it is, results table, loss curves, demo link, how to reproduce.
   4. Write-up (blog post or `docs/writeup.md`): decisions, what went wrong, what you learned.
 - **Done when:** the demo is live, the repo README shows real results, and every number on the recruiter pitch is filled in.
+
+## 14. Colab notebook design (cell by cell)
+
+`notebooks/colab_runner.ipynb` is the only notebook in phase 1. It is a **runner**: every cell is a few lines that call `tygpt` commands. All real logic lives in the package, where it is tested.
+
+### 14.1 Rules for every cell
+
+1. **Thin cells.** A cell calls `tygpt ...` or prints a check. If a cell grows past ~10 lines, that logic belongs in the package.
+2. **Safe to re-run.** Every cell checks whether its output already exists (on Drive) and skips the work if so. After a disconnect you can "Run all" without redoing anything.
+3. **Every cell ends with a check.** It prints what it produced (counts, paths, loss) so a failure is obvious straight away.
+4. **Long jobs run in the background.** Training is launched with `nohup ... &`, writing a log to Drive. A separate monitor cell shows progress. The notebook stays usable, and a closed browser tab doesn't stop training while the runtime is alive.
+5. **Nothing important lives only in `/content`.** Data caches, tokenizer, checkpoints and results are written to Drive in `MyDrive/mini-gpt/`.
+6. **Cells are added step by step.** Part A arrives in step 1, Part B in step 2, and so on. Each step's PR adds its cells.
+
+### 14.2 Cell map
+
+**Part A · Session setup** (run at the start of every session, ~2 min)
+
+| Cell | Purpose | What it runs | Check it prints |
+|---|---|---|---|
+| A1 Settings | Colab form fields: `BRANCH`, `RUN_NAME`, `DRIVE_ROOT = /content/drive/MyDrive/mini-gpt` | variables only | the settings |
+| A2 GPU check | Confirm the GPU and the precision the trainer will use | `torch.cuda` details + fp32/fp16/bf16 matmul speed | GPU name, memory, capability, "trainer will use fp16/bf16" |
+| A3 Drive | Mount Drive, create `data/`, `checkpoints/`, `results/`, `logs/` | `drive.mount(...)` | folder list |
+| A4 Code | Clone or pull the repo, check out `BRANCH` | `git clone` / `git pull` | branch + commit hash |
+| A5 Install | Install the package | `pip install -e ".[dev]" -q` | `tygpt --version` |
+| A6 Tests | Run the full suite before any training | `pytest -q` | `N passed` (stop if anything fails) |
+| A7 Data cache | Copy token shards from Drive to local disk for speed | `rsync` Drive → `/content/data` (skipped if nothing cached yet) | files copied + sizes |
+
+**Part B · Data** (step 2, run once; results stay on Drive)
+
+| Cell | Purpose | What it runs | Check it prints |
+|---|---|---|---|
+| B1 TinyStories | Download, clean, dedupe, split | `tygpt prepare configs/small_tinystories.yaml` | data card: docs, bytes, duplicates removed |
+| B2 Gita chapter | Split the chapter into verses, then train/val | `tygpt prepare configs/gita_chapter.yaml` | verses in train / val |
+| B3 Inspect | Look at the data before training on it | print 3 random documents from each split | the samples |
+
+**Part C · Tokenizer** (step 3, run once)
+
+| Cell | Purpose | What it runs | Check it prints |
+|---|---|---|---|
+| C1 Train BPE | Learn the 8,192-token vocabulary from TinyStories + Gita | `tygpt tokenizer-train configs/small_tinystories.yaml` | vocab size, time taken |
+| C2 Encode | Write `train.bin` / `val.bin` for both datasets | `tygpt tokenize` for both configs | token counts per split |
+| C3 Inspect | Sanity-check the tokenizer | round trip on a sample; bytes per token; how `Arjuna`, `Krishna`, `dharma` split | token pieces |
+
+**Part D · Pretraining** (steps 5–6)
+
+| Cell | Purpose | What it runs | Check it prints |
+|---|---|---|---|
+| D1 Smoke test | Prove the whole loop works on the GPU in ~1 min | `tygpt train configs/tiny_cpu.yaml train.device=cuda train.max_steps=300` | loss falling, checkpoint written |
+| D2 Benchmark | Measure real speed for the 14M model | `tygpt train configs/small_tinystories.yaml train.max_steps=200` | tokens/sec, GPU memory, suggested `micro_batch_size` and `max_steps` |
+| D3 Launch | Start (or resume) the real run in the background | `nohup tygpt train configs/small_tinystories.yaml --resume > logs/pretrain.log 2>&1 &` | process ID |
+| D4 Monitor | Watch progress; re-run any time | tail of the log + loss-curve plot from `metrics.csv` | step, loss, val loss, tokens/sec, ETA |
+| D5 Sample | Read what the model writes | `tygpt sample checkpoints/small/best.pt --prompt "Once upon a time"` | generated stories |
+
+**Part E · Evaluation** (step 7)
+
+| Cell | Purpose | What it runs | Check it prints |
+|---|---|---|---|
+| E1 Base model eval | Numbers for the pretrained model on both val sets | `tygpt eval checkpoints/small/best.pt --data <config>` for TinyStories and Gita | loss, perplexity, bits per byte |
+| E2 Plots | Save loss curves | `tygpt plot` → `results/` on Drive | PNG shown inline |
+
+**Part F · Fine-tuning on the Gita** (step 8)
+
+| Cell | Purpose | What it runs | Check it prints |
+|---|---|---|---|
+| F1 Launch | Fine-tune from the 14M checkpoint | `tygpt train configs/gita_chapter.yaml train.init_from=checkpoints/small/best.pt` (background) | process ID |
+| F2 Monitor | Watch train vs val loss; spot memorising | log tail + plot of both curves | best step (early stopping) |
+| F3 Eval | Compare base vs fine-tuned | `tygpt eval` on Gita val and TinyStories val for both checkpoints | before/after table |
+| F4 Side by side | Same prompts, both models | `tygpt sample` with `Arjuna said:`, `Krishna said:` | two columns of text |
+
+**Part G · Demo and results** (step 9)
+
+| Cell | Purpose | What it runs | Check it prints |
+|---|---|---|---|
+| G1 Demo | Try the models live | Gradio app: choose base or fine-tuned, prompt, temperature; `share=True` | public link (valid ~72 h) |
+| G2 Results | Collect everything for the write-up | copy tables and plots to `results/` on Drive | file list |
+
+Results are recorded in `docs/results.md` in the repo: Claude reads the cell outputs through the Colab connection and commits them from the laptop.
+
+### 14.3 Typical sessions
+
+| Situation | Cells to run |
+|---|---|
+| First session ever | A1–A6, then the current step's part |
+| New session, work in progress | A1–A7, then continue |
+| After a disconnect during training | A1–A7, then D3 (it resumes from `last.pt`), then D4 |
+| Code changed on a branch | A4–A6 (pull, reinstall, test), then the step's cells |
