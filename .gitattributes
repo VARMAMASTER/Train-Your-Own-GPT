@@ -1,0 +1,5 @@
+# Store text files with LF line endings so shell scripts run on Colab and Vultr.
+* text=auto eol=lf
+*.ipynb text eol=lf
+*.png binary
+*.pt binary

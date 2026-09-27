@@ -22,3 +22,6 @@ runs/
 .DS_Store
 Thumbs.db
 .vscode/
+
+# Build metadata from pip install -e
+*.egg-info/
