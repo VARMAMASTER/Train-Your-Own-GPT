@@ -212,14 +212,23 @@ footer{font-size:.84rem;color:var(--muted);border-top:1px solid var(--line);padd
 <div class="wrap">
 
 <header id="goal">
-  <span class="eyebrow">System design · draft v1 · 2026-09-27</span>
+  <span class="eyebrow">System design · draft v2 · 2026-09-27 · phase 1 in progress</span>
   <h1>Train Your Own GPT</h1>
   <p class="lede">A GPT-style language model built from scratch in PyTorch: our own tokenizer, transformer, training loop and fine-tuning, trained across a laptop, Google Colab and a Vultr GPU, then shipped as a public demo.</p>
   <div class="meta">
-    <span class="chip c-laptop"><span class="dot"></span>Laptop · CPU · free</span>
-    <span class="chip c-colab"><span class="dot"></span>Colab · T4 16 GB · free</span>
-    <span class="chip c-vultr"><span class="dot"></span>Vultr · A100 / H100 · $250</span>
+    <span class="chip c-laptop"><span class="dot"></span>Laptop · code + git</span>
+    <span class="chip c-colab"><span class="dot"></span>Colab Pro · T4 / L4 · phase 1</span>
+    <span class="chip c-vultr"><span class="dot"></span>Vultr · A100 / H100 · phase 2</span>
     <span class="chip c-ship"><span class="dot"></span>Ship · GitHub + Hugging Face</span>
+  </div>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>Phase</th><th>Where</th><th>What</th><th>Done when</th></tr></thead>
+      <tbody>
+        <tr><td><span class="pill c-colab">Phase 1</span></td><td><b>Colab Pro only</b></td><td>Build everything from scratch · pretrain the <b>14M</b> model on TinyStories · fine-tune it on <b>one chapter of the Bhagavad Gita</b></td><td>Before/after fine-tuning results, demo runs in Colab</td></tr>
+        <tr><td><span class="pill c-vultr">Phase 2</span></td><td>Vultr (+ Colab Pro)</td><td>Pretrain the <b>124M</b> model on FineWeb-Edu · fine-tune on the Gita · Track B · public demo</td><td>All five success criteria met</td></tr>
+      </tbody>
+    </table>
   </div>
   <div class="criteria" aria-label="Success criteria">
     <div class="crit"><b>124M</b><span>parameter model pretrained on ≥ 2.5B tokens with coherent output</span></div>
@@ -251,7 +260,7 @@ footer{font-size:.84rem;color:var(--muted);border-top:1px solid var(--line);padd
         <div class="pbox"><span class="n">Stage 3</span><h3>Model</h3><ul><li>GPT module</li><li>Presets: tiny / small / base</li></ul></div>
         <div class="art">→ <b>tygpt.model</b><br>(Python module)</div>
       </div>
-      <div class="pstage c-vultr">
+      <div class="pstage c-colab">
         <div class="pbox"><span class="n">Stage 4</span><h3>Training</h3><ul><li>Pretrain</li><li>Fine-tune on my data</li><li>Checkpoint &amp; resume</li></ul></div>
         <div class="art">→ <b>last.pt, best.pt</b><br>metrics.csv</div>
       </div>
@@ -387,9 +396,9 @@ footer{font-size:.84rem;color:var(--muted);border-top:1px solid var(--line);padd
         <table>
           <thead><tr><th>Preset</th><th>Layers</th><th>d_model</th><th>Context</th><th>Params</th><th>Runs on</th></tr></thead>
           <tbody>
-            <tr><td><code>tiny</code></td><td class="num">4</td><td class="num">128</td><td class="num">256</td><td class="num">~2M</td><td><span class="pill c-laptop">Laptop</span></td></tr>
-            <tr><td><code>small</code></td><td class="num">6</td><td class="num">384</td><td class="num">512</td><td class="num">~14M</td><td><span class="pill c-colab">Colab</span></td></tr>
-            <tr><td><code>base124m</code></td><td class="num">12</td><td class="num">768</td><td class="num">1,024</td><td class="num">124M</td><td><span class="pill c-vultr">Vultr</span></td></tr>
+            <tr><td><code>tiny</code></td><td class="num">4</td><td class="num">128</td><td class="num">256</td><td class="num">~2M</td><td><span class="pill c-laptop">Tests</span></td></tr>
+            <tr><td><code>small</code></td><td class="num">6</td><td class="num">384</td><td class="num">512</td><td class="num">~14M</td><td><span class="pill c-colab">Colab · phase 1</span></td></tr>
+            <tr><td><code>base124m</code></td><td class="num">12</td><td class="num">768</td><td class="num">1,024</td><td class="num">124M</td><td><span class="pill c-vultr">Vultr · phase 2</span></td></tr>
           </tbody>
         </table>
       </div>
@@ -408,20 +417,20 @@ footer{font-size:.84rem;color:var(--muted);border-top:1px solid var(--line);padd
     <svg class="env-svg" viewBox="0 0 900 300" role="img" aria-label="Laptop pushes to GitHub; Colab and Vultr clone from GitHub; Colab saves to Google Drive, Vultr to object storage; both publish to Hugging Face">
       <defs><marker id="eh" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="s-head"/></marker></defs>
       <rect x="10" y="115" width="160" height="70" rx="10" class="e-node e-laptop"/>
-      <text x="90" y="145" text-anchor="middle" class="e-title">Laptop · VS Code</text>
-      <text x="90" y="165" text-anchor="middle" class="e-sub">code · tests · tiny</text>
+      <text x="90" y="145" text-anchor="middle" class="e-title">Claude Code</text>
+      <text x="90" y="165" text-anchor="middle" class="e-sub">writes code + tests</text>
 
       <rect x="240" y="115" width="140" height="70" rx="10" class="e-node e-git"/>
       <text x="310" y="145" text-anchor="middle" class="e-title">GitHub repo</text>
       <text x="310" y="165" text-anchor="middle" class="e-sub">single source</text>
 
       <rect x="450" y="30" width="170" height="70" rx="10" class="e-node e-colab"/>
-      <text x="535" y="60" text-anchor="middle" class="e-title">Colab runtime</text>
-      <text x="535" y="80" text-anchor="middle" class="e-sub">small · SFT · Track B</text>
+      <text x="535" y="60" text-anchor="middle" class="e-title">Colab Pro</text>
+      <text x="535" y="80" text-anchor="middle" class="e-sub">phase 1 · every run</text>
 
       <rect x="450" y="200" width="170" height="70" rx="10" class="e-node e-vultr"/>
       <text x="535" y="230" text-anchor="middle" class="e-title">Vultr GPU</text>
-      <text x="535" y="250" text-anchor="middle" class="e-sub">base124m pretrain</text>
+      <text x="535" y="250" text-anchor="middle" class="e-sub">phase 2 · 124M</text>
 
       <rect x="680" y="30" width="120" height="70" rx="10" class="e-store"/>
       <text x="740" y="60" text-anchor="middle" class="e-title">Drive</text>
@@ -447,7 +456,7 @@ footer{font-size:.84rem;color:var(--muted);border-top:1px solid var(--line);padd
       <path d="M800 230 C 830 220, 850 205, 853 189" class="e-edge" marker-end="url(#eh)"/>
     </svg>
   </div>
-  <div class="callout"><b>Important:</b> the VS Code Colab extension runs notebook cells on Colab, but Colab can't see files on your laptop. <code>notebooks/colab_runner.ipynb</code> runs <code>git clone</code> and <code>pip install -e .</code>, then runs a config. Data arrives through Drive or a Hugging Face download.</div>
+  <div class="callout"><b>Important:</b> Colab can't see files on your laptop. <code>notebooks/colab_runner.ipynb</code> runs <code>git clone</code> and <code>pip install -e .</code>, then runs a config. Data and checkpoints live on Drive in <code>MyDrive/mini-gpt/</code>. The notebook is only a runner and can be rebuilt at any time.</div>
 </section>
 
 <section id="failures">
@@ -494,8 +503,9 @@ footer{font-size:.84rem;color:var(--muted);border-top:1px solid var(--line);padd
     <table>
       <thead><tr><th>Run</th><th>Params</th><th>Tokens</th><th>FLOPs</th><th>Hardware</th><th>Est. time</th><th>Est. cost</th></tr></thead>
       <tbody>
-        <tr><td><code>tiny</code> debug</td><td class="num">2M</td><td class="num">5M</td><td class="num">6e13</td><td><span class="pill c-laptop">Laptop</span></td><td class="num">minutes</td><td class="num">$0</td></tr>
-        <tr><td><code>small</code> TinyStories</td><td class="num">14M</td><td class="num">~470M</td><td class="num">4e16</td><td><span class="pill c-colab">Colab T4</span></td><td class="num">1–3 h</td><td class="num">$0</td></tr>
+        <tr><td><code>tiny</code> smoke test</td><td class="num">2M</td><td class="num">5M</td><td class="num">6e13</td><td><span class="pill c-colab">Colab</span></td><td class="num">minutes</td><td class="num">Pro plan</td></tr>
+        <tr><td><code>small</code> TinyStories</td><td class="num">14M</td><td class="num">~470M</td><td class="num">4e16</td><td><span class="pill c-colab">Colab Pro T4 / L4</span></td><td class="num">~1–1.5 h</td><td class="num">Pro plan</td></tr>
+        <tr><td><code>small</code> Gita fine-tune</td><td class="num">14M</td><td class="num">~15k × epochs</td><td class="num">tiny</td><td><span class="pill c-colab">Colab Pro</span></td><td class="num">minutes</td><td class="num">Pro plan</td></tr>
         <tr><td><code>base124m</code> FineWeb-Edu</td><td class="num">124M</td><td class="num">2.5B</td><td class="num">1.9e18</td><td><span class="pill c-vultr">1× A100</span></td><td class="num">~4–6 h</td><td class="num">~$10–25</td></tr>
         <tr><td><code>base124m</code> extended</td><td class="num">124M</td><td class="num">10B</td><td class="num">7.4e18</td><td><span class="pill c-vultr">A100 / H100</span></td><td class="num">~12–20 h</td><td class="num">~$30–60</td></tr>
       </tbody>
@@ -522,33 +532,50 @@ footer{font-size:.84rem;color:var(--muted);border-top:1px solid var(--line);padd
 <section id="build">
   <div class="sec-head">
     <span class="eyebrow">Build order</span>
-    <h2>Eleven steps, each ending with something that runs</h2>
-    <p class="muted">Each step is its own small project with its own plan, tests and pull request.</p>
+    <h2>Two phases: prove it on Colab, then scale on Vultr</h2>
+    <p class="muted">Each step is its own small project with its own plan, tests and pull request. Code is written in the repo, pushed to GitHub, and run in the Colab runner notebook.</p>
   </div>
+  <h3>Phase 1 · Colab Pro</h3>
   <ol class="steps">
-    <li class="step c-laptop"><div class="rail"><span class="sn">0</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Scaffold</h3><span class="pill">Laptop</span></div><p>Package, config, CLI, CI. Done when <code>pytest</code> passes in GitHub Actions.</p></div></li>
-    <li class="step c-laptop"><div class="rail"><span class="sn">1</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Data pipeline</h3><span class="pill">Laptop</span></div><p>TinyStories + custom data → split text with a data card.</p></div></li>
-    <li class="step c-laptop"><div class="rail"><span class="sn">2</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Tokenizer</h3><span class="pill">Laptop</span></div><p>ScratchBPE matches tiktoken; token shards written.</p></div></li>
-    <li class="step c-laptop"><div class="rail"><span class="sn">3</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Model + generation</h3><span class="pill">Laptop</span></div><p>All model tests pass; <code>tiny</code> overfits one batch.</p></div></li>
-    <li class="step c-laptop"><div class="rail"><span class="sn">4</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Trainer + checkpointing</h3><span class="pill">Laptop</span></div><p><code>tiny</code> trains end to end on CPU; the resume test passes.</p></div></li>
-    <li class="step c-colab"><div class="rail"><span class="sn">5</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Colab runner</h3><span class="pill">Colab</span></div><p><code>small</code> trains on TinyStories and survives a forced disconnect.</p></div></li>
-    <li class="step c-colab"><div class="rail"><span class="sn">6</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Evaluation</h3><span class="pill">Colab</span></div><p>Perplexity, samples and HellaSwag working.</p></div></li>
-    <li class="step c-vultr"><div class="rail"><span class="sn">7</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Big run</h3><span class="pill">Vultr</span></div><p><code>base124m</code> trained within budget; results logged.</p></div></li>
-    <li class="step c-colab"><div class="rail"><span class="sn">8</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Fine-tuning</h3><span class="pill">Colab</span></div><p>Custom-data val loss improves over the base model.</p></div></li>
-    <li class="step c-colab"><div class="rail"><span class="sn">9</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Track B + comparison</h3><span class="pill">Colab</span></div><p><code>results.md</code> with the head-to-head table.</p></div></li>
-    <li class="step c-ship"><div class="rail"><span class="sn">10</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Ship</h3><span class="pill">HF</span></div><p>Weights on HF Hub, Gradio Space live, README with results.</p></div></li>
+    <li class="step c-ship"><div class="rail"><span class="sn">0</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Scaffold ✅</h3><span class="pill">Done</span></div><p>Package, config system, <code>tygpt</code> command, CI. 49 tests.</p></div></li>
+    <li class="step c-colab"><div class="rail"><span class="sn">1</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Colab workspace</h3><span class="pill">Colab</span></div><p>Runner notebook: GPU check, Drive, clone, install, tests pass on a fresh GPU machine.</p></div></li>
+    <li class="step c-colab"><div class="rail"><span class="sn">2</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Data pipeline</h3><span class="pill">Colab</span></div><p>TinyStories + a Gita chapter → split JSONL with data cards.</p></div></li>
+    <li class="step c-colab"><div class="rail"><span class="sn">3</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Tokenizer</h3><span class="pill">Colab</span></div><p>ScratchBPE matches tiktoken; vocab trained on TinyStories + the Gita; shards for both.</p></div></li>
+    <li class="step c-colab"><div class="rail"><span class="sn">4</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Model + generation</h3><span class="pill">Colab</span></div><p>All model tests pass; <code>tiny</code> overfits one batch.</p></div></li>
+    <li class="step c-colab"><div class="rail"><span class="sn">5</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Trainer + checkpointing</h3><span class="pill">Colab</span></div><p><code>tiny</code> trains on the GPU; the resume test passes.</p></div></li>
+    <li class="step c-colab"><div class="rail"><span class="sn">6</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Pretrain 14M</h3><span class="pill">Colab</span></div><p><code>small</code> trained on TinyStories (~1–1.5 h on a T4); survives a forced disconnect.</p></div></li>
+    <li class="step c-colab"><div class="rail"><span class="sn">7</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Evaluation</h3><span class="pill">Colab</span></div><p>Perplexity, bits per byte, fixed-prompt samples, loss plots.</p></div></li>
+    <li class="step c-colab"><div class="rail"><span class="sn">8</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Fine-tune on a Gita chapter</h3><span class="pill">Colab</span></div><p>Early stopping on held-out verses; before/after table and samples.</p></div></li>
+    <li class="step c-colab"><div class="rail"><span class="sn">9</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Phase 1 wrap-up</h3><span class="pill">Colab</span></div><p>Results, Colab demo, README, tag <code>v1.0</code>.</p></div></li>
+  </ol>
+  <h3>Phase 2 · Vultr</h3>
+  <ol class="steps">
+    <li class="step c-vultr"><div class="rail"><span class="sn">10</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Big run</h3><span class="pill">Vultr</span></div><p><code>base124m</code> on FineWeb-Edu within budget; HellaSwag; cost report.</p></div></li>
+    <li class="step c-colab"><div class="rail"><span class="sn">11</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Fine-tune 124M on the Gita</h3><span class="pill">Colab Pro</span></div><p>14M vs 124M comparison, using bits per byte.</p></div></li>
+    <li class="step c-colab"><div class="rail"><span class="sn">12</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Track B + comparison</h3><span class="pill">Colab Pro</span></div><p>LoRA on an open model with the same data split; head-to-head table.</p></div></li>
+    <li class="step c-ship"><div class="rail"><span class="sn">13</span><span class="stem"></span></div><div class="sbody"><div class="sbody-top"><h3>Ship</h3><span class="pill">HF</span></div><p>Weights on HF Hub, Gradio Space live, README with results.</p></div></li>
   </ol>
 </section>
 
 <section id="open">
   <div class="sec-head">
-    <span class="eyebrow">Open decisions</span>
-    <h2>Still to decide</h2>
+    <span class="eyebrow">Decisions</span>
+    <h2>Decided, and still open</h2>
+  </div>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>Decided</th><th>Choice</th></tr></thead>
+      <tbody>
+        <tr><td>Custom data</td><td>One chapter of the Bhagavad Gita, fine-tuned by continued pretraining</td></tr>
+        <tr><td>First model</td><td>14M <code>small</code> on Colab Pro; 124M moves to phase 2</td></tr>
+        <tr><td>Where to run</td><td>Colab Pro only in phase 1; Vultr in phase 2</td></tr>
+      </tbody>
+    </table>
   </div>
   <div class="open-grid">
-    <div class="open"><h3>Custom data type</h3><div class="opts"><span>Documents</span><span>Conversations / Q&amp;A</span><span>Code</span><span>Undecided</span></div><p class="note">Blocks step 1 (source adapter) and step 8 (fine-tuning mode).</p></div>
-    <div class="open"><h3>Custom data size</h3><div class="opts"><span>MB</span><span>100s of MB</span><span>GB</span></div><p class="note">Decides whether ScratchBPE is retrained on it and how many SFT epochs to run.</p></div>
-    <div class="open"><h3>Experiment tracking</h3><div class="opts"><span>W&amp;B free tier</span><span>CSV + matplotlib</span></div><p class="note">Blocks step 4 (logging).</p></div>
+    <div class="open"><h3>Gita translation</h3><div class="opts"><span>Arnold 1885 (public domain)</span><span>Telang 1882 (public domain)</span><span>Other (check copyright)</span></div><p class="note">Blocks step 2.</p></div>
+    <div class="open"><h3>Which chapter</h3><div class="opts"><span>Chapter 2 · 72 verses (recommended)</span><span>Another chapter</span></div><p class="note">Blocks step 2.</p></div>
+    <div class="open"><h3>Experiment tracking</h3><div class="opts"><span>W&amp;B free tier</span><span>CSV + matplotlib</span></div><p class="note">Blocks step 5.</p></div>
   </div>
 </section>
 

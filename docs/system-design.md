@@ -1,6 +1,6 @@
 # Train Your Own GPT: System Design
 
-Status: draft v1 · 2026-09-27
+Status: draft v2 · 2026-09-27 · phase 1 (Colab) in progress
 
 ## 1. Goal
 
@@ -16,14 +16,23 @@ Build a GPT-style language model from scratch in PyTorch, train it, fine-tune it
 
 **Out of scope for v1:** RLHF/DPO, multi-node training, mixture-of-experts, quantization, serving at scale.
 
+### Phases
+
+| Phase | Where | What | Done when |
+|---|---|---|---|
+| **1 · Prove the pipeline** | **Colab Pro only** | Build everything from scratch; pretrain the **14M** model on TinyStories; fine-tune it on **one chapter of the Bhagavad Gita** | Before/after fine-tuning results in `docs/results.md`, demo runs in Colab |
+| **2 · Scale up** | Vultr (+ Colab Pro for light jobs) | Pretrain the **124M** model on FineWeb-Edu; fine-tune on the Gita; Track B comparison; public demo | Success criteria 1–5 above are met |
+
+Phase 2 starts only after phase 1 works end to end. The same code and configs run in both phases.
+
 ## 2. Constraints
 
 | Constraint | Value | Design consequence |
 |---|---|---|
-| Local machine | Windows laptop, CPU only | All code must run on CPU with a tiny config for fast debugging. |
-| Free GPU | Google Colab T4 (16 GB), sessions of at most 12h | Training must checkpoint often and resume exactly. |
-| Paid GPU | Vultr, $250 credit | One script for all environments; budget guard that stops the run automatically. |
-| Editor | VS Code + Google Colab extension | Colab runtime does not see local files; code reaches Colab through Git. |
+| Local machine | Windows laptop, CPU only | Used for editing code and git only in phase 1. Tests stay CPU-only so CI can run them. |
+| Phase 1 GPU | **Google Colab Pro**: T4 (16 GB, fp16 only, measured 22–25 TFLOPS fp16), L4 (24 GB, bf16), A100 when available | Every run happens here in phase 1. Training must checkpoint often and resume exactly. |
+| Phase 2 GPU | Vultr, $250 credit | One script for all environments; budget guard that stops the run automatically. |
+| How Colab is driven | Colab notebook in the browser, connected to Claude Code through the Colab MCP connection | Colab does not see local files: code reaches Colab through GitHub, data through Drive or a download. |
 
 ## 3. Architecture overview
 
@@ -66,10 +75,12 @@ Every stage reads files from the previous stage and writes files for the next. N
 Train-Your-Own-GPT/
 ├── pyproject.toml            # package "tygpt", pip install -e .
 ├── configs/                  # YAML configs, one per experiment
-│   ├── tiny_cpu.yaml         # ~2M params, laptop debugging
-│   ├── small_tinystories.yaml# ~14M params, Colab
-│   ├── base124m_fineweb.yaml # 124M params, Vultr
-│   └── sft_mydata.yaml       # fine-tuning run
+│   ├── tiny_cpu.yaml         # ~2M params, tests and smoke runs
+│   ├── colab.yaml            # Drive paths for Colab runs
+│   ├── small_tinystories.yaml# ~14M params, phase 1 pretraining
+│   ├── gita_chapter.yaml     # phase 1 fine-tuning on a Gita chapter
+│   └── base124m_fineweb.yaml # 124M params, phase 2 on Vultr
+├── datasets/gita/            # chapter text + SOURCE.md (translation, licence)
 ├── src/tygpt/
 │   ├── config.py             # typed config dataclasses + YAML loading
 │   ├── data/
@@ -94,7 +105,7 @@ Train-Your-Own-GPT/
 │   └── cli.py                # tygpt prepare | train | sample | eval
 ├── track_b/                  # LoRA fine-tune of an open model (HF + PEFT/Unsloth)
 ├── notebooks/
-│   └── colab_runner.ipynb    # clone repo, install, run a config
+│   └── colab_runner.ipynb    # phase 1 runner: GPU check, Drive, clone, install, test, run
 ├── scripts/                  # vultr_setup.sh, vultr_teardown.md checklist
 ├── demo/app.py               # Gradio app
 ├── tests/                    # pytest, runs on CPU
@@ -152,8 +163,8 @@ Each component lists its job, its inputs and outputs, and the decisions that sha
 
 | Preset | Layers | Heads | d_model | Context | Vocab | ~Params | Runs on |
 |---|---|---|---|---|---|---|---|
-| `tiny` | 4 | 4 | 128 | 256 | 8,192 | 2M | Laptop CPU |
-| `small` | 6 | 6 | 384 | 512 | 8,192 | 14M | Colab T4 |
+| `tiny` | 4 | 4 | 128 | 256 | 8,192 | 2M | Tests, quick smoke runs |
+| `small` | 6 | 6 | 384 | 512 | 8,192 | 14M | Colab Pro (phase 1) |
 | `base124m` | 12 | 12 | 768 | 1,024 | 50,304* | 124M | Vultr A100/H100 |
 
 \*50,257 padded to a multiple of 64 for GPU efficiency.
@@ -223,22 +234,22 @@ The same code and configs run everywhere. Only `paths.*` and the device change.
 
 ```mermaid
 flowchart LR
-    LAP[Laptop · VS Code<br/>write code · tiny config · tests] -->|git push| GH[(GitHub repo)]
-    GH -->|git clone / pull| COLAB[Colab runtime<br/>small runs · SFT · Track B]
-    GH -->|git clone| VULTR[Vultr GPU server<br/>base124m pretraining]
-    COLAB -->|checkpoints| DRIVE[(Google Drive)]
-    VULTR -->|checkpoints| OBJ[(Vultr Object Storage)]
+    CC[Claude Code on laptop<br/>writes code + tests] -->|git push| GH[(GitHub repo<br/>+ CI)]
+    GH -->|git clone / pull| COLAB[Colab Pro notebook<br/>phase 1: every run]
+    GH -.->|phase 2| VULTR[Vultr GPU server<br/>124M pretraining]
+    COLAB -->|checkpoints| DRIVE[(Google Drive<br/>MyDrive/mini-gpt)]
+    VULTR -.->|checkpoints| OBJ[(Vultr Object Storage)]
     DRIVE --> HF[(Hugging Face Hub)]
-    OBJ --> HF
+    OBJ -.-> HF
 ```
 
-| Environment | How code arrives | Data & checkpoint location | Used for |
-|---|---|---|---|
-| Laptop | Local working copy | `./data`, `./checkpoints` | Coding, unit tests, `tiny` config |
-| Colab (from VS Code) | `colab_runner.ipynb` runs `git clone` + `pip install -e .` | `/content/drive/MyDrive/tygpt/` | `small` runs, SFT, Track B |
-| Vultr | `git clone` + setup script | Local NVMe, synced to object storage every checkpoint | `base124m` pretraining |
+| Environment | Phase | How code arrives | Data & checkpoint location | Used for |
+|---|---|---|---|---|
+| Laptop | 1, 2 | Local working copy | none | Writing code, git, CPU tests |
+| **Colab Pro** | **1**, 2 | `notebooks/colab_runner.ipynb`: `git clone`/`pull` + `pip install -e .` | Drive `MyDrive/mini-gpt/`; shards copied to local `/content` for speed | Tests, data prep, tokenizer, 14M pretraining, fine-tuning, eval, demo |
+| Vultr | 2 | `git clone` + setup script | Local NVMe, synced to object storage every checkpoint | 124M pretraining |
 
-**Important:** the VS Code Colab extension runs notebook cells on Colab, but the Colab machine does **not** see files on your laptop. Code gets there through GitHub, and data gets there through Drive or a Hugging Face download.
+**Important:** Colab cannot see files on your laptop. Code gets there through GitHub, and data gets there through Drive or a download. The Colab notebook is only a runner: it can be rebuilt at any time, because everything that matters is in GitHub (code) or Drive (data and checkpoints).
 
 ## 7. Failure handling
 
@@ -270,8 +281,9 @@ Training compute is estimated as FLOPs ≈ 6 × parameters × tokens.
 
 | Run | Params | Tokens | FLOPs | Hardware | Est. time | Est. cost |
 |---|---|---|---|---|---|---|
-| `tiny` debug | 2M | 5M | 6e13 | Laptop | minutes | $0 |
-| `small` TinyStories | 14M | ~470M | 4e16 | Colab T4 | 1–3 h | $0 |
+| `tiny` smoke test | 2M | 5M | 6e13 | Colab (any GPU) | minutes | Pro plan |
+| `small` TinyStories | 14M | ~470M | 4e16 | Colab Pro T4 / L4 | ~1–1.5 h (T4) | Pro plan |
+| `small` Gita fine-tune | 14M | ~15k × a few epochs | tiny | Colab Pro | minutes | Pro plan |
 | `base124m` FineWeb-Edu | 124M | 2.5B | 1.9e18 | 1× A100 80GB | ~4–6 h | ~$10–25 |
 | `base124m` extended | 124M | 10B | 7.4e18 | 1× A100/H100 | ~12–20 h | ~$30–60 |
 
@@ -285,17 +297,22 @@ Each step is its own small project with its own plan, tests and PR. Each produce
 
 | # | Sub-project | Done when | Runs on |
 |---|---|---|---|
-| 0 | Scaffold: package, config, CLI, CI | `pytest` passes in GitHub Actions | Laptop |
-| 1 | Data pipeline | TinyStories + custom data → split text with data card | Laptop |
-| 2 | Tokenizer | ScratchBPE matches tiktoken; shards written | Laptop |
-| 3 | Model + generation | All model tests pass; `tiny` overfits a batch | Laptop |
-| 4 | Trainer + checkpointing | `tiny` trains end-to-end on CPU; resume test passes | Laptop |
-| 5 | Colab runner | `small` trains on TinyStories, survives a forced disconnect | Colab |
-| 6 | Evaluation | Perplexity, samples, HellaSwag working | Colab |
-| 7 | Big run | `base124m` trained within budget; results logged | Vultr |
-| 8 | Fine-tuning | Custom-data val loss improves over base | Colab |
-| 9 | Track B + comparison | `results.md` with head-to-head table | Colab |
-| 10 | Ship | HF Hub weights, Gradio Space live, README with results | HF |
+| | **Phase 1: Colab Pro** | | |
+| 0 | Scaffold: package, config, CLI, CI ✅ | `pytest` passes in GitHub Actions | Laptop + CI |
+| 1 | Colab workspace | Runner notebook sets up a fresh GPU machine; tests pass there | Colab |
+| 2 | Data pipeline | TinyStories + Gita chapter → split JSONL with data cards | Colab |
+| 3 | Tokenizer | ScratchBPE matches tiktoken; shards for both datasets | Colab |
+| 4 | Model + generation | All model tests pass; `tiny` overfits a batch | Colab |
+| 5 | Trainer + checkpointing | `tiny` trains on GPU; resume test passes | Colab |
+| 6 | Pretrain 14M | `small` trained on TinyStories; survives a forced disconnect | Colab |
+| 7 | Evaluation | Perplexity, bits per byte, samples, plots | Colab |
+| 8 | Fine-tune on a Gita chapter | Gita val loss beats base; before/after table | Colab |
+| 9 | Phase 1 wrap-up | Results, Colab demo, README, tag `v1.0` | Colab + GitHub |
+| | **Phase 2: Vultr** | | |
+| 10 | Big run | `base124m` trained within budget; HellaSwag; cost report | Vultr |
+| 11 | Fine-tune 124M on the Gita | 14M vs 124M comparison | Colab Pro |
+| 12 | Track B + comparison | `results.md` with head-to-head table | Colab Pro |
+| 13 | Ship | HF Hub weights, Gradio Space live, README with results | HF |
 
 ## 11. Dependencies
 
@@ -315,11 +332,22 @@ Each step is its own small project with its own plan, tests and PR. Each produce
 
 ## 12. Open decisions
 
+**Decided (2026-09-27)**
+
+| Decision | Choice | Consequence |
+|---|---|---|
+| Custom data | **One chapter of the Bhagavad Gita** (documents) | Fine-tuning mode is continued pretraining; data is split by paragraph/verse (step 2) |
+| Data size | ~10–20k tokens | Early stopping is essential; tokenizer is trained on TinyStories + the Gita text |
+| First model | **14M `small`** on Colab Pro | 124M moves to phase 2 on Vultr |
+| Where to run | **Colab Pro only in phase 1** | Colab runner notebook becomes step 1 |
+
+**Still open**
+
 | Decision | Options | Blocks |
 |---|---|---|
-| **Custom data type** | Documents · conversations/Q&A · code · undecided | Step 1 source adapter, step 8 fine-tuning mode (section 5.7) |
-| Custom data size | MB · hundreds of MB · GB | Whether ScratchBPE is retrained on it, and the number of SFT epochs |
-| Experiment tracking | W&B (free tier) · CSV + matplotlib only | Step 4 logging |
+| **Gita translation** | Public domain: Edwin Arnold, *The Song Celestial* (1885, verse) · K. T. Telang (1882, prose) · another translation (check copyright before publishing) | Step 2 |
+| **Which chapter** | Chapter 2 *Sankhya Yoga* (72 verses, recommended) · another chapter | Step 2 |
+| Experiment tracking | W&B (free tier) · CSV + matplotlib only | Step 5 logging |
 
 ## 13. Step-by-step build procedure
 
@@ -331,66 +359,87 @@ Every step follows the same loop:
 
 1. **Branch:** `git switch -c step-N-<name>` from an up-to-date `main`.
 2. **Plan:** write `docs/superpowers/plans/<date>-stepN-<name>.md` with bite-sized tasks, exact files, and test code.
-3. **Build test-first:** for each task, write the failing test → run it and watch it fail → write the code → watch it pass → commit.
-4. **Verify:** run the full test suite and the step's "Verify" commands below. Paste real output, not assumptions.
-5. **Pull request:** push the branch, open a PR, wait for CI to pass, then merge into `main`.
-6. **Record:** add any numbers the step produced (loss, tokens/sec, cost) to `docs/results.md`. Tag the release `v0.N`.
+3. **Build test-first:** code is written in the repo. For each task: write the failing test → watch it fail → write the code → watch it pass → commit.
+4. **Push and pull:** push the branch to GitHub; in the Colab runner notebook, `git pull` that branch and reinstall.
+5. **Verify on Colab:** run the full test suite and the step's "Verify" cells in the Colab runner. Paste real output, not assumptions.
+6. **Pull request:** open a PR, wait for CI to pass, then merge into `main`.
+7. **Record:** add any numbers the step produced (loss, tokens/sec, time) to `docs/results.md`. Tag the release `v0.N`.
+
+In phase 1, all "Verify" commands are Colab cells (`!tygpt ...`). Tests are CPU-only, so they also run in GitHub Actions on every push.
 
 Nothing moves to the next step until the current step's **Done when** line is true.
 
 ---
 
-### Step 0: Scaffold
+## Phase 1: everything on Colab Pro
+
+Goal of phase 1: a complete, working pipeline. A 14M model built from scratch, pretrained on TinyStories, and fine-tuned on a chapter of the Bhagavad Gita.
+
+### Step 0: Scaffold ✅ done
 
 - **Goal:** an installable package with configs, a CLI and CI, so every later step has a home.
-- **Runs on:** laptop.
-- **Plan:** `docs/superpowers/plans/2026-09-27-step0-scaffold.md` (already written).
-- **Build, in order:**
-  1. Create `.venv` and `pyproject.toml`; install with `pip install -e ".[dev]"`.
-  2. `src/tygpt/config.py`: dataclasses per section, type coercion, validation (section 5.1).
-  3. YAML loading and `section.key=value` overrides; add `configs/tiny_cpu.yaml`.
-  4. `src/tygpt/cli.py` with the `tygpt config` command.
-  5. `.github/workflows/ci.yml` running pytest on Python 3.10 and 3.13 with CPU-only torch.
-- **Verify:**
-  ```powershell
-  .venv\Scripts\python -m pytest
-  .venv\Scripts\tygpt config configs\tiny_cpu.yaml train.lr=5e-4
-  ```
-- **Done when:** all tests pass locally and the CI run on GitHub is green.
+- **Runs on:** laptop + GitHub Actions.
+- **Plan:** `docs/superpowers/plans/2026-09-27-step0-scaffold.md`.
+- **Built:** `pyproject.toml` package `tygpt`; typed config system with YAML and `section.key=value` overrides; `configs/tiny_cpu.yaml`; `tygpt config` command; CI on Python 3.10 and 3.13 with CPU-only torch. 49 tests.
+- **Done when:** all tests pass and the CI run on GitHub is green.
 - **You'll learn:** Python packaging, typed configs, test-driven development, CI.
 
 ---
 
-### Step 1: Data pipeline
+### Step 1: Colab workspace
 
-- **Goal:** turn any raw source into clean, deduplicated, split documents.
-- **Runs on:** laptop.
-- **Needs from earlier:** `Config.data` (step 0).
+- **Goal:** a Colab notebook that turns any fresh Colab GPU machine into our working environment in one "Run all".
+- **Runs on:** Colab Pro.
+- **Needs from earlier:** step 0 pushed to GitHub.
 - **Build, in order:**
-  1. Add config fields `data.text_field` (default `text`), `data.min_chars` (default 200) and `data.max_docs` (optional, for quick runs).
+  1. `notebooks/colab_runner.ipynb` with these cells:
+     1. GPU check: GPU name, memory, compute capability, fp16/bf16 speed.
+     2. Mount Google Drive; create `/content/drive/MyDrive/mini-gpt/{data,checkpoints}`.
+     3. `git clone` the repo (or `git pull` if it exists) and check out the branch being worked on (a `BRANCH` variable at the top).
+     4. `pip install -e ".[dev]"`.
+     5. `pytest`: the same tests as CI, now on the Colab machine.
+     6. A "command" cell for the current step's verify commands.
+  2. `configs/colab.yaml` overrides: `paths.data_dir` and `paths.ckpt_dir` point at the Drive folder; `train.device: auto`.
+  3. Speed rule: token shards are **copied from Drive to local `/content` disk** at the start of a run, because reading training data straight from Drive is slow. Checkpoints are written to Drive, so they survive a disconnect.
+- **Verify:** "Run all" on a fresh runtime finishes with the tests passing and prints the GPU details.
+- **Done when:** the notebook sets up a fresh T4 or L4 machine and all 49 tests pass there.
+- **You'll learn:** reproducible environments, and the difference between fast local disk and persistent storage.
+
+---
+
+### Step 2: Data pipeline
+
+- **Goal:** turn raw sources into clean, deduplicated, split documents: TinyStories for pretraining and a Gita chapter for fine-tuning.
+- **Runs on:** Colab.
+- **Needs from earlier:** `Config.data` (step 0), Colab runner (step 1).
+- **Build, in order:**
+  1. Config fields: `data.text_field` (default `text`), `data.min_chars` (default 200), `data.max_docs` (optional, for quick runs), and `data.split_unit` (`document` or `paragraph`).
   2. `data/sources.py`: one adapter per source type, all exposing `iter_documents(cfg) -> Iterator[str]`:
      - `text_dir`: every `.txt` / `.md` file under a folder is one document.
      - `jsonl`: one JSON object per line; reads `text_field`, or `messages` for chat data.
      - `hf_dataset`: streams a Hugging Face dataset, so it never loads everything into memory.
   3. `data/clean.py`: `normalize(text)` (Unicode NFC, strip control characters, collapse runs of blank lines), `keep(text, min_chars)`, and exact dedupe by SHA-256.
-  4. Deterministic split: a document goes to val when `hash(seed + text)` falls under `val_fraction`. This works while streaming and never puts the same document in both splits.
-  5. `data/prepare.py` + `tygpt prepare <config>`: writes `data/processed/<name>/train.jsonl`, `val.jsonl` (one `{"text": ...}` per line, so documents can safely contain newlines) and `data_card.json` (counts, bytes, duplicates removed, filters used).
-- **Verify:**
-  ```powershell
-  .venv\Scripts\tygpt prepare configs\tiny_cpu.yaml data.max_docs=20000
-  Get-Content data\processed\tinystories\data_card.json
+  4. **Paragraph splitting** (`split_unit: paragraph`): a single chapter is one file, so it is split into verse/stanza-sized pieces before splitting into train and val. Otherwise the whole chapter would land on one side.
+  5. Deterministic split: a document goes to val when `hash(seed + text)` falls under `val_fraction`. This works while streaming and never puts the same text in both splits.
+  6. `data/prepare.py` + `tygpt prepare <config>`: writes `<data_dir>/processed/<name>/train.jsonl`, `val.jsonl` (one `{"text": ...}` per line) and `data_card.json` (counts, bytes, duplicates removed, filters used).
+  7. The Gita chapter text lives in the repo at `datasets/gita/` together with a `SOURCE.md` that records the translation, its public-domain status, and where it was downloaded from.
+- **Verify (Colab cells):**
   ```
-- **Tests:** normalisation cases; duplicates removed; no document in both splits; split is identical across two runs with the same seed; each adapter reads a small fixture.
-- **Done when:** TinyStories (and a sample of your own data once its type is decided) produce split JSONL with a data card.
-- **You'll learn:** why data quality matters more than model tweaks, and why splitting by document prevents train/val leakage.
+  !tygpt prepare configs/small_tinystories.yaml
+  !tygpt prepare configs/gita_chapter.yaml
+  !cat /content/drive/MyDrive/mini-gpt/data/processed/gita/data_card.json
+  ```
+- **Tests:** normalisation cases; duplicates removed; paragraph splitting; no text in both splits; the split is identical across two runs with the same seed; each adapter reads a small fixture.
+- **Done when:** TinyStories and the Gita chapter both produce split JSONL with a data card.
+- **You'll learn:** why data quality matters more than model tweaks, and why splitting before training prevents train/val leakage.
 
 ---
 
-### Step 2: Tokenizer
+### Step 3: Tokenizer
 
 - **Goal:** a byte-level BPE tokenizer written from scratch and proven correct, plus encoded token shards.
-- **Runs on:** laptop.
-- **Needs from earlier:** `train.jsonl` / `val.jsonl` (step 1).
+- **Runs on:** Colab.
+- **Needs from earlier:** `train.jsonl` / `val.jsonl` for both datasets (step 2).
 - **Build, in order:**
   1. Add the `regex` package (needed for GPT-2's Unicode-aware pre-split pattern).
   2. `tokenizer/bpe.py` training: split text with the GPT-2 regex → work in UTF-8 bytes (IDs 0–255) → repeatedly count adjacent pairs and merge the most frequent into a new ID until `vocab_size` is reached.
@@ -399,22 +448,24 @@ Nothing moves to the next step until the current step's **Done when** line is tr
   5. `save()` / `load()` to `tokenizer.json`.
   6. `tokenizer/backends.py`: `get_tokenizer(cfg)` returns `ScratchBPE` or `TiktokenGPT2` behind the same interface (section 5.3).
   7. **Correctness proof:** rebuild GPT-2's merges from tiktoken's rank table, load them into `ScratchBPE`, and check that its output matches tiktoken exactly on a test corpus.
-  8. `tygpt tokenize <config>`: encodes the JSONL into `train.bin` / `val.bin` (`uint16`, documents separated by `<|endoftext|>`) plus `meta.json`, using multiple processes.
-- **Verify:**
-  ```powershell
-  .venv\Scripts\tygpt tokenize configs\tiny_cpu.yaml
-  .venv\Scripts\python -c "import numpy as np; a=np.memmap('data/processed/tinystories/train.bin',dtype=np.uint16); print(len(a), a[:20])"
+  8. **Train the 8,192-token vocabulary on a TinyStories sample plus the full Gita text**, so names such as *Arjuna*, *Krishna* and *Kurukshetra* get their own tokens.
+  9. `tygpt tokenize <config>`: encodes the JSONL into `train.bin` / `val.bin` (`uint16`, documents separated by `<|endoftext|>`) plus `meta.json`, using all CPU cores.
+- **Verify (Colab cells):**
   ```
+  !tygpt tokenize configs/small_tinystories.yaml
+  !tygpt tokenize configs/gita_chapter.yaml
+  ```
+  Then print the token count, bytes per token, and how `Arjuna` and `Krishna` are tokenized.
 - **Tests:** encode→decode round trip on random Unicode; GPT-2 equivalence; special tokens stay whole; shard length matches the token count in `meta.json`.
-- **Done when:** the GPT-2 equivalence test passes and token shards exist for TinyStories.
+- **Done when:** the GPT-2 equivalence test passes and token shards exist for both datasets.
 - **You'll learn:** how BPE works, why byte-level tokenizers never hit "unknown" characters, and compression ratio (bytes per token).
 
 ---
 
-### Step 3: Model and generation
+### Step 4: Model and generation
 
 - **Goal:** the GPT module and text generation, verified by tests before any real training.
-- **Runs on:** laptop.
+- **Runs on:** Colab (tests are CPU-only, so they also run in CI).
 - **Needs from earlier:** `ModelConfig` (step 0).
 - **Build, in order:**
   1. `model/gpt.py`, bottom up: `CausalSelfAttention` (manual version with an explicit causal mask) → `MLP` → `Block` (pre-LayerNorm + residuals) → `GPT` (embeddings, blocks, final LayerNorm, tied LM head).
@@ -423,125 +474,147 @@ Nothing moves to the next step until the current step's **Done when** line is tr
   4. Add the fast path `F.scaled_dot_product_attention(is_causal=True)`, and keep the manual version for testing.
   5. `model/generate.py`: temperature, top-k and top-p sampling, stopping at an end token.
   6. Optional but valuable: a loader that copies Hugging Face's pretrained GPT-2 weights into our module. If our model then produces the same logits as Hugging Face's, the architecture is proven correct.
-- **Verify:**
-  ```powershell
-  .venv\Scripts\python -m pytest tests\model -v
-  ```
-- **Tests:** output shapes; parameter counts per preset (`base124m` ≈ 124M); **causality** (changing a future token never changes earlier logits); SDPA and manual attention agree; the `tiny` model overfits a single batch to near-zero loss; generation is reproducible with a fixed seed.
-- **Done when:** all model tests pass and a single batch overfits on CPU.
+- **Verify (Colab cell):** `!pytest tests/model -v`, then run one forward and backward pass of the `small` model on the GPU and print its parameter count (~14M) and memory use.
+- **Tests:** output shapes; parameter counts per preset; **causality** (changing a future token never changes earlier logits); SDPA and manual attention agree; the `tiny` model overfits a single batch to near-zero loss; generation is reproducible with a fixed seed.
+- **Done when:** all model tests pass and a single batch overfits.
 - **You'll learn:** self-attention, causal masking, residual streams, why scale by √d<sub>k</sub>, weight tying.
 
 ---
 
-### Step 4: Trainer and checkpointing
+### Step 5: Trainer and checkpointing
 
-- **Goal:** one training loop that works on CPU, Colab and Vultr, and can stop and resume exactly.
-- **Runs on:** laptop.
-- **Needs from earlier:** token shards (step 2), `GPT` (step 3).
+- **Goal:** one training loop that works on any device, and can stop and resume exactly.
+- **Runs on:** Colab.
+- **Needs from earlier:** token shards (step 3), `GPT` (step 4).
 - **Build, in order:**
   1. `train/loader.py`: `TokenLoader` reads random windows of `block_size + 1` tokens from the `uint16` memmap and returns `(x, y)`. Its RNG state is saveable.
   2. Learning-rate schedule `get_lr(step)`: linear warmup, then cosine decay to `min_lr_ratio × lr`.
   3. AdamW with two parameter groups: weight decay on 2-D weights only.
-  4. `resolve_device(cfg)`: picks `cuda` → `mps` → `cpu`, and picks precision by GPU generation: **bf16 only on compute capability ≥ 8.0 (A100/H100); fp16 with GradScaler on the T4**, even though the T4 reports emulated bf16 support.
+  4. `resolve_device(cfg)`: picks `cuda` → `mps` → `cpu`, and picks precision by GPU generation: **bf16 only on compute capability ≥ 8.0 (L4, A100, H100); fp16 with GradScaler on the T4** (measured: capability 7.5, and `is_bf16_supported()` wrongly reports True there).
   5. `train/trainer.py`: gradient accumulation, clipping, autocast, optional `torch.compile`, eval every `eval_interval` steps, sample generation at each eval.
   6. `train/logging.py`: stdout + `metrics.csv` (step, loss, val loss, lr, tokens/sec), optional W&B.
   7. `train/checkpoint.py`: atomic save of the full state (section 5.6); `--resume` loads `last.pt`.
   8. Guards: stop on NaN/Inf; stop cleanly at `max_hours` or `max_cost_usd`.
   9. CLI: `tygpt train <config> [--resume]` and `tygpt sample <checkpoint> --prompt "..."`.
-- **Verify:**
-  ```powershell
-  .venv\Scripts\tygpt train configs\tiny_cpu.yaml
-  # stop it with Ctrl+C partway, then:
-  .venv\Scripts\tygpt train configs\tiny_cpu.yaml --resume
-  .venv\Scripts\tygpt sample checkpoints\tiny_cpu\best.pt --prompt "Once upon a time"
+- **Verify (Colab cells):**
   ```
-- **Tests:** learning-rate schedule values at key steps; weight decay groups; save→resume gives identical weights to an uninterrupted run; NaN guard triggers; cost guard stops at the limit.
-- **Done when:** `tiny` trains end to end on CPU with a falling loss, and the resume test passes.
+  !tygpt train configs/tiny_cpu.yaml train.device=cuda train.max_steps=300
+  # interrupt the cell partway, then:
+  !tygpt train configs/tiny_cpu.yaml train.device=cuda train.max_steps=300 --resume
+  !tygpt sample /content/drive/MyDrive/mini-gpt/checkpoints/tiny_cpu/best.pt --prompt "Once upon a time"
+  ```
+- **Tests:** learning-rate schedule values at key steps; weight decay groups; save→resume gives identical weights to an uninterrupted run; NaN guard triggers; time guard stops at the limit.
+- **Done when:** `tiny` trains end to end on the GPU with a falling loss, and the resume test passes.
 - **You'll learn:** AdamW, warmup and cosine schedules, mixed precision, gradient accumulation, reproducibility.
 
 ---
 
-### Step 5: Colab runner
+### Step 6: Pretrain the 14M model
 
-- **Goal:** run real training on the free T4, safe against disconnects.
-- **Runs on:** Colab, driven from VS Code.
-- **Needs from earlier:** everything from steps 0–4, pushed to GitHub.
+- **Goal:** the first real model: `small` (~14M parameters) pretrained on TinyStories.
+- **Runs on:** Colab Pro T4 (fp16) or L4 (bf16).
+- **Needs from earlier:** steps 1–5.
 - **Build, in order:**
-  1. `configs/small_tinystories.yaml`: the ~14M `small` preset, fp16, checkpoints to Drive.
-  2. `notebooks/colab_runner.ipynb`: mount Google Drive → `git clone` (or `git pull`) → `pip install -e .` → `tygpt prepare` and `tygpt tokenize` (skipped if shards already exist on Drive) → `tygpt train --resume`.
-  3. Log tokens/sec and GPU memory use to find the largest `micro_batch_size` that fits.
+  1. `configs/small_tinystories.yaml`: `small` preset (6 layers, 6 heads, d_model 384, context 512, vocab 8,192), checkpoints to Drive, `max_hours` set.
+  2. **Benchmark:** 5-minute run → measured tokens/sec → find the largest `micro_batch_size` that fits → set `max_steps` for one pass over TinyStories (~470M tokens).
+  3. Full run with `--resume`, checkpoints every few minutes.
   4. **Disconnect drill:** restart the runtime mid-training, re-run the notebook, and confirm it continues from the last checkpoint.
-- **Verify:** the loss curve in `metrics.csv` continues smoothly across the restart; samples read as simple, coherent stories.
-- **Done when:** `small` finishes training on TinyStories and survives a forced disconnect.
+- **Verify:** the loss curve in `metrics.csv` falls and continues smoothly across the restart; samples read as simple, coherent stories.
+- **Done when:** `small` finishes training and survives a forced disconnect. Estimated ~1–1.5 h on the T4.
 - **You'll learn:** GPU throughput, memory limits, and working with unreliable compute.
 
 ---
 
-### Step 6: Evaluation
+### Step 7: Evaluation
 
 - **Goal:** measure models with numbers, not just by reading samples.
 - **Runs on:** Colab.
-- **Needs from earlier:** checkpoints (steps 4–5).
+- **Needs from earlier:** checkpoints (steps 5–6).
 - **Build, in order:**
-  1. `eval/perplexity.py`: val loss and perplexity over the full val shard, plus **bits per byte** (loss normalised by UTF-8 bytes). Bits per byte is what makes models with different tokenizers comparable in step 9.
-  2. Fixed-prompt samples saved at every eval.
-  3. `eval/hellaswag.py`: for each question, score all four endings by average token loss and pick the lowest. If step 3's GPT-2 loader exists, check the scorer gives ≈ 29% on pretrained GPT-2 weights.
-  4. `eval/plots.py`: `metrics.csv` → loss-curve PNGs.
-  5. `tygpt eval <checkpoint>` writes results to `docs/results.md`.
-- **Done when:** perplexity, bits per byte, samples and HellaSwag run on the `small` model.
-- **You'll learn:** what perplexity means, why benchmarks need careful scoring, why comparisons across tokenizers need normalising.
+  1. `eval/perplexity.py`: val loss and perplexity over a full val shard, plus **bits per byte** (loss normalised by UTF-8 bytes), which makes models with different tokenizers comparable.
+  2. Fixed-prompt samples saved at every eval, including Gita-style prompts (`Arjuna said:`, `Krishna said:`) so the before/after fine-tuning comparison is ready.
+  3. `eval/plots.py`: `metrics.csv` → loss-curve PNGs.
+  4. `tygpt eval <checkpoint> --data <config>` writes results to `docs/results.md`.
+- **Done when:** perplexity, bits per byte, samples and plots work on the 14M model, on both the TinyStories and Gita val sets.
+- **You'll learn:** what perplexity means, and why comparisons across tokenizers need normalising.
+
+(HellaSwag moves to phase 2: at 14M parameters, trained only on children's stories, it would score close to random guessing.)
 
 ---
 
-### Step 7: The big run on Vultr
+### Step 8: Fine-tune on a Gita chapter
+
+- **Goal:** adapt the 14M model to one chapter of the Bhagavad Gita and measure what changed.
+- **Runs on:** Colab.
+- **Needs from earlier:** 14M checkpoint (step 6), Gita shards (step 3), evaluation (step 7).
+- **Build, in order:**
+  1. Config field `train.init_from`: start from a checkpoint instead of random weights.
+  2. `configs/gita_chapter.yaml`: continued pretraining (the data is documents, section 5.7), learning rate ~10× lower than pretraining, several epochs, eval every few steps.
+  3. **Early stopping** on Gita val loss. With only ~10–20k tokens, the model starts memorising verses after a few passes; keep the checkpoint with the best val loss.
+  4. Compare base vs fine-tuned: Gita val loss and bits per byte, TinyStories val loss (to see how much general ability was lost), and side-by-side samples from the same prompts.
+- **Done when:** Gita val loss is clearly lower than the base model's, samples show the Gita's style and vocabulary, and `docs/results.md` has the before/after table.
+- **You'll learn:** transfer learning, overfitting on tiny datasets, early stopping, catastrophic forgetting.
+
+---
+
+### Step 9: Phase 1 wrap-up
+
+- **Goal:** a finished, presentable v1 before spending any Vultr credit.
+- **Runs on:** Colab + GitHub.
+- **Build, in order:**
+  1. `docs/results.md`: pretraining curve, eval table, before/after fine-tuning table and samples.
+  2. A small Gradio demo cell in the Colab runner (share link), so the fine-tuned model can be tried live.
+  3. README update with results; tag `v1.0`.
+- **Done when:** someone can read the README, see real numbers, and try the model.
+
+---
+
+## Phase 2: scale up on Vultr
+
+Starts only after phase 1 is done. The same code and configs run unchanged; only the preset, data and machine change.
+
+### Step 10: The big run on Vultr
 
 - **Goal:** pretrain the 124M model on FineWeb-Edu within budget.
 - **Runs on:** Vultr A100 or H100.
-- **Needs from earlier:** steps 0–6 working on Colab.
+- **Needs from earlier:** phase 1 complete.
 - **Build, in order:**
   1. `configs/base124m_fineweb.yaml`: `tiktoken_gpt2` backend, bf16, `compile: true`, `max_hours` and `max_cost_usd` set.
   2. Extend `TokenLoader` to read multiple shards (~100M tokens each), because billions of tokens don't fit one file.
-  3. `scripts/vultr_setup.sh`: install drivers check, clone repo, create venv, install, log in to W&B, configure object-storage sync.
-  4. Tokenize FineWeb-Edu on the server using all CPU cores (the GPU sits idle here, so do this on a cheaper CPU instance if the time is long).
+  3. `scripts/vultr_setup.sh`: check drivers, clone repo, create venv, install, log in to W&B, configure object-storage sync.
+  4. Tokenize FineWeb-Edu on the server using all CPU cores (on a cheaper CPU instance if it takes long).
   5. **Benchmark:** 15-minute run → measured tokens/sec → set `max_steps` to fit the token budget and the $ cap.
   6. Launch inside `tmux` so the run survives SSH disconnects; sync checkpoints to object storage every checkpoint.
-  7. After the run: sync final checkpoints → verify they load → **destroy the instance** (`scripts/vultr_teardown.md`).
+  7. `eval/hellaswag.py`: score all four endings by average token loss; check ≈ 29% on pretrained GPT-2 weights if step 4's loader exists.
+  8. After the run: sync final checkpoints → verify they load → **destroy the instance** (`scripts/vultr_teardown.md`).
 - **Done when:** the model is trained, HellaSwag is measured, and `docs/results.md` has the loss curve and a cost report (GPU type, hours, $, tokens/sec).
 - **You'll learn:** scaling laws in practice, GPU efficiency (MFU), running long jobs on rented hardware.
 
 ---
 
-### Step 8: Fine-tuning on your data
+### Step 11: Fine-tune the 124M model on the Gita
 
-- **Goal:** adapt the 124M model to your own data.
-- **Runs on:** Colab.
-- **Needs from earlier:** `base124m` checkpoint (step 7); your data prepared by step 1. **The custom data type must be decided before this step** (section 12).
-- **Build, in order:**
-  1. Config field `train.init_from`: start from a checkpoint instead of random weights.
-  2. Mode by data type (section 5.7):
-     - documents → continued pretraining on your tokenized data;
-     - conversations → `train/sft_loader.py`, which renders messages with special tokens and masks loss to assistant tokens only.
-  3. `configs/sft_mydata.yaml`: learning rate ~10× lower, a few epochs, early stopping on custom val loss.
-- **Done when:** val loss on your data is lower than the base model's, and samples show the model picked up your data's content or style.
-- **You'll learn:** transfer learning, loss masking, overfitting on small datasets.
+- **Goal:** repeat step 8 at 124M parameters, ideally on the whole Gita (18 chapters, ~700 verses).
+- **Runs on:** Colab Pro (fine-tuning is light).
+- **Done when:** `docs/results.md` compares 14M vs 124M, before vs after fine-tuning.
+- **Note:** the 124M model uses the GPT-2 tokenizer, so comparisons with the 14M model use **bits per byte**, not raw loss.
 
 ---
 
-### Step 9: Track B and comparison
+### Step 12: Track B and comparison
 
 - **Goal:** compare your scratch model against the industry-standard approach.
-- **Runs on:** Colab.
-- **Needs from earlier:** the same split data (step 1), evaluation (step 6), your fine-tuned model (step 8).
+- **Runs on:** Colab Pro.
 - **Build, in order:**
-  1. `track_b/finetune_lora.py` (or notebook): QLoRA fine-tune of a 1B–3B open model with Unsloth on the **same** train split.
-  2. Evaluate both models on the **same** val split, comparing **bits per byte** (not raw loss, since the tokenizers differ), plus side-by-side answers to fixed prompts.
+  1. `track_b/finetune_lora.py` (or notebook): QLoRA fine-tune of a 1B–3B open model with Unsloth on the **same** Gita train split.
+  2. Evaluate on the **same** val split with **bits per byte**, plus side-by-side answers to fixed prompts.
   3. `eval/compare.py` writes the head-to-head table into `docs/results.md`.
 - **Done when:** `docs/results.md` has the comparison table, and you can explain why the numbers came out the way they did.
 - **You'll learn:** LoRA, when to train from scratch versus fine-tune, fair evaluation.
 
 ---
 
-### Step 10: Ship
+### Step 13: Ship
 
 - **Goal:** something a recruiter can click on and try.
 - **Runs on:** Hugging Face.
