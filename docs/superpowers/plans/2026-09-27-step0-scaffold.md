@@ -1,4 +1,4 @@
-# Step 0: Scaffold Implementation Plan
+﻿# Step 0: Scaffold Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - Package name: `tygpt`; source under `src/tygpt/`; tests under `tests/`.
-- `requires-python = ">=3.10"` (Colab runs 3.12, CI tests 3.10 and 3.12, local machine runs 3.13).
+- `requires-python = ">=3.10"` (Colab and the local machine run 3.13; CI tests 3.10 and 3.13).
 - Hyperparameters live only in config; no hard-coded values elsewhere (spec 5.1).
 - CLI override syntax is exactly `section.key=value`, e.g. `train.lr=3e-4` (spec 5.1).
 - Token shards are `uint16`, so `tokenizer.vocab_size` must be ≤ 65,536 (spec 5.3).
@@ -35,7 +35,7 @@
 | `tests/test_config.py` | Dict → Config conversion, coercion, validation |
 | `tests/test_config_loading.py` | YAML files, overrides, every shipped config loads |
 | `tests/test_cli.py` | CLI behaviour and exit codes |
-| `.github/workflows/ci.yml` | Run pytest on CPU for Python 3.10 and 3.12 |
+| `.github/workflows/ci.yml` | Run pytest on CPU for Python 3.10 and 3.13 |
 | `README.md` | Add development setup section |
 
 ---
@@ -880,7 +880,7 @@ git commit -m "feat: add tygpt CLI with config command" -m "Co-Authored-By: Clau
 
 **Interfaces:**
 - Consumes: `pyproject.toml` `dev` extra and the full test suite from Tasks 1–4.
-- Produces: CI that runs `pytest` on every push to `main` and every pull request, on Python 3.10 and 3.12, with CPU-only torch.
+- Produces: CI that runs `pytest` on every push to `main` and every pull request, on Python 3.10 and 3.13, with CPU-only torch.
 
 - [ ] **Step 1: Write the workflow**
 
@@ -899,7 +899,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.12"]
+        python-version: ["3.10", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -945,10 +945,10 @@ Expected: all tests pass.
 
 ```powershell
 git add .github/workflows/ci.yml README.md
-git commit -m "ci: run tests on CPU for Python 3.10 and 3.12; add dev setup docs" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit -m "ci: run tests on CPU for Python 3.10 and 3.13; add dev setup docs" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 - [ ] **Step 5: Push and confirm CI is green (ask the user before pushing)**
 
 Run: `git push origin main`, then `gh run watch` (or check the Actions tab on GitHub).
-Expected: both matrix jobs (3.10, 3.12) pass. If a job fails, read the log, fix the cause, commit and push again.
+Expected: both matrix jobs (3.10, 3.13) pass. If a job fails, read the log, fix the cause, commit and push again.
